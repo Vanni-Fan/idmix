@@ -21,3 +21,48 @@
 # 自定义ID转字符串的算法
 - 默认是将 10进制 的 uint64 转成 36进制（0-9 + 26个字母） 的字符串，你可以定义自己的编码，只需要实现相关的接口即可
 - 假如你区分大小写，可以使用62进制（0-9 + 52个字母）
+  
+# demo
+```golang
+package main
+
+import (
+	"fmt"
+	"math/rand"
+
+	idmix "github.com/Vanni-Fan/idmix/golang"
+)
+
+func main() {
+	key := uint64(1234567890)
+	scrId := uint64(rand.Int31())
+	str, err := idmix.Encode(key, scrId)
+	if err != nil {
+		fmt.Println("编码失败", err)
+		return
+	}
+	dstId, err := idmix.Decode(key, str)
+	if err != nil {
+		fmt.Println("解码失败", err)
+		return
+	}
+	fmt.Printf("编码ID[%d]，字符串[%s]，解码ID[%d]，是否正确[%v]\n", scrId, str, dstId, scrId == dstId)
+
+	// 自定义编码器
+	e, err := idmix.NewCustomEncoder("你好+abcdefg_0123456789-ABCDEFG.")
+	str, err = idmix.Encode(key, scrId, e)
+	if err != nil {
+		fmt.Println("编码失败", err)
+		return
+	}
+	dstId, err = idmix.Decode(key, str, e)
+	if err != nil {
+		fmt.Println("解码失败", err)
+		return
+	}
+	fmt.Printf("编码ID[%d]，字符串[%s]，解码ID[%d]，是否正确[%v]\n", scrId, str, dstId, scrId == dstId)
+}
+// 可能输出：
+//编码ID[1005185537]，字符串[66ihzsdl]，解码ID[1005185537]，是否正确[true]
+//编码ID[1005185537]，字符串[A7你Gd好7.]，解码ID[1005185537]，是否正确[true]
+```
