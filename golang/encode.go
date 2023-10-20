@@ -47,7 +47,7 @@ func NewCustomEncoder(baseStr string) (*CustomEncoder, error) {
 	}
 	for i, s := range bytes.Runes([]byte(baseStr)) {
 		if _, ok := encode.mapping[s]; ok {
-			return nil, errors.New("进制字符串中不允许有相同的字符")
+			return nil, errors.New("进制字符串中不允许有相同的字符：" + string(s))
 		}
 		encode.baseRune = append(encode.baseRune, s)
 		encode.mapping[s] = uint8(i)
@@ -98,6 +98,7 @@ func (c *CustomEncoder) Decode(str string) (id uint64, err error) {
 
 		// 计算当前位的值，并累加到结果中
 		position := int64(length - 1 - i)
+		// todo ,当转出大于 uint64 时，会截断，需要用 big.Int 来改
 		result += uint64(value) * uint64(math.Pow(float64(b), float64(position)))
 	}
 	return result, nil

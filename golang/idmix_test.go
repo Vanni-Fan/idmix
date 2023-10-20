@@ -1,7 +1,6 @@
 package idmix
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 	"strconv"
@@ -99,15 +98,26 @@ func BenchmarkMix(b *testing.B) {
 	}
 }
 
-func TestCustomEncoder(t *testing.T) {
-	e, err := NewCustomEncoder("abcdefghijklnmopqrstuvwxyz0123456789ABCDEFGHIJKLNMOPQRSTUVWXYZ-_")
-	fmt.Println(e, err)
+func TestCustom(t *testing.T) {
+	testCustomEncoder(t, "abcdefghijklnmopqrstuvwxyz0123456789ABCDEFGHIJKLNMOPQRSTUVWXYZ") // 64进制编码
+	testCustomEncoder(t, "3456789abcdefghkmnpqrstwxy")                                     // 车牌规则，去掉 1ijl  2z  0o  vu
+	testCustomEncoder(t, "abcdefghijklnmopqrstuvwxyz0123456789-_")                         // 域名规则，允许下划线和中划线
+	testCustomEncoder(t, "自定义的中文加数字0123456789和abcdefghijklmnopqrstuvwxyz")                 // 文件路径规则，允许.逗号
+}
+
+// 测试自定义编码器
+func testCustomEncoder(t *testing.T, str string) {
+	e, err := NewCustomEncoder(str)
+	if err != nil {
+		t.Fatalf("无法创建编码器：%v", err)
+	}
 	var k = uint64(rand.NewSource(time.Now().UnixMicro()).Int63())
 	t.Log("密钥：", k)
 	var ids = "1"
-	for level := 0; level < 32; level++ {
+	for level := 0; level < 15; level++ {
 		ids = strconv.FormatInt(int64(randInt(0, 9)), 10) + ids
 		id, _ := strconv.ParseUint(ids, 10, 64)
+		t.Log("测试ID:", id)
 		for i := 0; i < 32; i++ {
 			x, e1 := Encode(k, id, e)
 			if e1 != nil {
@@ -123,5 +133,4 @@ func TestCustomEncoder(t *testing.T) {
 			t.Logf("原ID[%d]，编码[%s]，解码[%d]", id, x, y)
 		}
 	}
-
 }
