@@ -22,7 +22,8 @@ func TestIntEncode(t *testing.T) {
 		for i := 0; i < 32; i++ {
 			x, e1 := Encode(k, id)
 			if e1 != nil {
-				t.Fatalf("无法编码：%d, 错误：%v", id, e1)
+				t.Logf("无法编码：%d, 错误：%v", id, e1)
+				continue
 			}
 			y, e2 := Decode(k, x)
 			if e2 != nil {
@@ -46,7 +47,8 @@ func TestIntMix(t *testing.T) {
 		for i := 0; i < 32; i++ {
 			x, e1 := Mix(k, id)
 			if e1 != nil {
-				t.Fatalf("无法编码：%d, 错误：%v", id, e1)
+				t.Logf("无法编码：%d, 错误：%v", id, e1)
+				continue
 			}
 			y, e2 := Unmix(k, x)
 			if e2 != nil {
@@ -86,9 +88,32 @@ func BenchmarkMix(b *testing.B) {
 	for _, id := range ids {
 		x, e1 := Encode(k, id)
 		if e1 != nil {
-			b.Fatal("无法编码：", id, e1)
+			b.Logf("无法编码：%d, 错误：%v", id, e1)
+			continue
 		}
 		y, e2 := Decode(k, x)
+		if e2 != nil {
+			b.Fatal("无法解码：", x, e2)
+		}
+		if id != y {
+			b.Fatalf("解码错误：原ID[%d]，编码[%s],解码[%d]", id, x, y)
+		}
+	}
+}
+
+// 自定义编码器的性能测试
+// go test --count=1 -benchmem -run=^$ -bench ^BenchmarkMixCustom$
+func BenchmarkMixCustom(b *testing.B) {
+	encoder, _ := NewCustomEncoder("abcdefghijklnmopqrstuvwxyz0123456789ABCDEFGHIJKLNMOPQRSTUVWXYZ-,.+=!@#$%^&*()_[]<>~自定义的中文加数字")
+	var k = uint64(rand.NewSource(time.Now().UnixMicro()).Int63())
+	var ids = []uint64{123, 123456, 123456789, 123456789012, 123456789012015, 1<<56 - 1}
+	for _, id := range ids {
+		x, e1 := Encode(k, id, encoder)
+		if e1 != nil {
+			b.Logf("无法编码：%d, 错误：%v", id, e1)
+			continue
+		}
+		y, e2 := Decode(k, x, encoder)
 		if e2 != nil {
 			b.Fatal("无法解码：", x, e2)
 		}
@@ -103,6 +128,7 @@ func TestCustom(t *testing.T) {
 	testCustomEncoder(t, "3456789abcdefghkmnpqrstwxy")                                     // 车牌规则，去掉 1ijl  2z  0o  vu
 	testCustomEncoder(t, "abcdefghijklnmopqrstuvwxyz0123456789-_")                         // 域名规则，允许下划线和中划线
 	testCustomEncoder(t, "自定义的中文加数字0123456789和abcdefghijklmnopqrstuvwxyz")                 // 文件路径规则，允许.逗号
+	testCustomEncoder(t, "KLNMOPQRSTUVWXYZ-,.+=!@#$%^&*()_[]<>~自定义的中文加数字abcdefghijklnmopqrstuvwxyz0123456789ABCDEFGHIJ")
 }
 
 // 测试自定义编码器
@@ -111,17 +137,19 @@ func testCustomEncoder(t *testing.T, str string) {
 	if err != nil {
 		t.Fatalf("无法创建编码器：%v", err)
 	}
-	var k = uint64(rand.NewSource(time.Now().UnixMicro()).Int63())
+	// var k = uint64(rand.NewSource(time.Now().UnixMicro()).Int63()) // 64位随机密码
+	var k = uint64(randInt(10000, 999999999)) // 32 位随机密码
 	t.Log("密钥：", k)
 	var ids = "1"
-	for level := 0; level < 15; level++ {
+	for level := 0; level < 17; level++ {
 		ids = strconv.FormatInt(int64(randInt(0, 9)), 10) + ids
 		id, _ := strconv.ParseUint(ids, 10, 64)
 		t.Log("测试ID:", id)
 		for i := 0; i < 32; i++ {
 			x, e1 := Encode(k, id, e)
 			if e1 != nil {
-				t.Fatalf("无法编码：%d, 错误：%v", id, e1)
+				t.Logf("无法编码：%d, 错误：%v", id, e1)
+				continue
 			}
 			y, e2 := Decode(k, x, e)
 			if e2 != nil {

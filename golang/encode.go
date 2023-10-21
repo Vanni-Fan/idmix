@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"strconv"
 )
 
@@ -85,21 +86,28 @@ func (c *CustomEncoder) Encode(n uint64) (string, error) {
 
 // 将自定编码转换10进制
 func (c *CustomEncoder) Decode(str string) (id uint64, err error) {
-	var result uint64
-	b := uint64(len(c.mapping))
-	rs := bytes.Runes([]byte(str))
-	length := len(rs)
-	for i, s := range rs {
+	var result = big.NewInt(0)
+	base := int64(len(c.mapping)) // 多少进制
+	chars := bytes.Runes([]byte(str))
+	length := len(chars)
+	for index, char := range chars {
 		// 查找当前字符在映射表中的值
-		value, ok := c.mapping[s]
+		value, ok := c.mapping[char]
 		if !ok {
-			return 0, fmt.Errorf("无效字符: %c", s)
+			return 0, fmt.Errorf("无效字符: %c", char)
 		}
-
-		// 计算当前位的值，并累加到结果中
-		position := int64(length - 1 - i)
-		// todo ,当转出大于 uint64 时，会截断，需要用 big.Int 来改
-		result += uint64(value) * uint64(math.Pow(float64(b), float64(position)))
+		// 计算幂
+		position := int64(length - 1 - index)
+		pow := big.NewInt(0)
+		pow.Exp(big.NewInt(base), big.NewInt(position), big.NewInt(0))
+		pow.Mul(pow, big.NewInt(int64(value)))
+		// 总计
+		result.Add(result, pow)
 	}
-	return result, nil
+	// 判断是否超出最大整数范围
+	maxUint64 := big.NewInt(0).SetUint64(math.MaxUint64)
+	if result.Cmp(maxUint64) > 0 {
+		return 0, fmt.Errorf("字符串[ %s ]，转成的整数[ %v ]，已超出最大整数范围：[0,%d]", str, result, uint64(math.MaxUint64))
+	}
+	return result.Uint64(), nil
 }
