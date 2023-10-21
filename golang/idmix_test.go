@@ -1,6 +1,7 @@
 package idmix
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"strconv"
@@ -161,4 +162,16 @@ func testCustomEncoder(t *testing.T, str string) {
 			t.Logf("原ID[%d]，编码[%s]，解码[%d]", id, x, y)
 		}
 	}
+}
+
+func TestC(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		fmt.Printf("%d => %08b => %d\n", i, i, ParityCheck(i))
+	}
+
+	key := uint64(1234567)
+	// str, err := Encode(key, 836184600)
+	// fmt.Println(str, err)
+	id, err := Decode(key, "2q9ful03")
+	fmt.Println(id, err)
 }

@@ -33,7 +33,7 @@ func randInt(min, max int, seed ...rand.Source) int {
 }
 
 // 数据结构  [数据：16 ~ 56位][随机数：5位][高位补码标记：1位][奇偶校验位：1位][奇偶校验位：1位]
-func normalization(userKey uint64, srcId uint64, isDecode bool) (key uint64, rand randType, id uint64, err error) {
+func normalization(userKey uint64, srcId uint64, isDecode bool) (key uint64, rand randType, id uint64) {
 	if isDecode { // 解码的时候，去掉最后一个字节
 		rand = randType{
 			rand:      uint8(srcId&0xFF) >> 3,  // 去掉后3位
@@ -138,10 +138,8 @@ func Mix(key, id uint64) (out uint64, err error) {
 		err = fmt.Errorf("数字[%d]已超出最大可混淆数字[%d]", id, 1<<56-1)
 		return
 	}
-	k, randObj, _, err := normalization(key, id, false)
-	if err != nil {
-		return
-	}
+	k, randObj, _ := normalization(key, id, false)
+
 	if DEBUG {
 		fmt.Printf("编码源信息：用户Key[%d]，规整Key[%d]，随机数[%d]，原始ID[%d]\n", key, k, randObj.rand, id)
 	}
@@ -187,10 +185,8 @@ func Unmix(key, id uint64) (out uint64, err error) {
 	if DEBUG {
 		fmt.Printf("需要解码数：[%d => %064b]\n", id, id)
 	}
-	k, randObj, id, err := normalization(key, id, true)
-	if err != nil {
-		return
-	}
+	k, randObj, id := normalization(key, id, true)
+
 	// 校验随机数奇偶位
 	if DEBUG {
 		fmt.Printf("解码源信息：用户Key[%d]，规整Key[%d]，随机数[%d]，原始ID[%d]\n", key, k, randObj.rand, id)

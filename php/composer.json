@@ -1,0 +1,18 @@
+{
+    "name": "vanni/idmix",
+    "description": "mix the int id",
+    "type": "library",
+    "license": "GMT",
+    "autoload": {
+        "psr-4": {
+            "Vanni\\Idmix\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Vanni",
+            "email": "web.cn@msn.com"
+        }
+    ],
+    "require": {}
+}

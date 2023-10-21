@@ -40,13 +40,14 @@ type CustomEncoder struct {
 
 // 用指定的字符集创建自定义编码
 func NewCustomEncoder(baseStr string) (*CustomEncoder, error) {
-	if len(baseStr) < 2 {
+	base := bytes.Runes([]byte(baseStr))
+	if len(base) < 2 {
 		return nil, errors.New("进制必须大于2个字符，比如最小的二级制也是0和1两个字符串")
 	}
 	encode := &CustomEncoder{
 		mapping: make(map[rune]uint8),
 	}
-	for i, s := range bytes.Runes([]byte(baseStr)) {
+	for i, s := range base {
 		if _, ok := encode.mapping[s]; ok {
 			return nil, errors.New("进制字符串中不允许有相同的字符：" + string(s))
 		}
