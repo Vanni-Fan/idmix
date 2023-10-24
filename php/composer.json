@@ -2,7 +2,7 @@
     "name": "vanni/idmix",
     "description": "mix the int id",
     "type": "library",
-    "license": "GMT",
+    "license": "Apache-2.0",
     "autoload": {
         "psr-4": {
             "Vanni\\Idmix\\": "src/"
@@ -14,5 +14,9 @@
             "email": "web.cn@msn.com"
         }
     ],
-    "require": {}
+    "require": {
+        "php":">8.0",
+        "ext-mcmath":"*",
+        "ext-mbstring":"*"
+    }
 }

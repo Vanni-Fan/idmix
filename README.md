@@ -23,6 +23,14 @@
 - 假如你区分大小写，可以使用62进制（0-9 + 52个字母）
   
 # demo
+## go，最大可编码整数为： 2^25 - 1
+- 安装
+```bash
+go mod init test
+go get github.com/Vanni-Fan/idmix/golang
+go mod vendor
+```
+- vim mani.go
 ```golang
 package main
 
@@ -65,4 +73,34 @@ func main() {
 // 可能输出：
 //编码ID[1005185537]，字符串[66ihzsdl]，解码ID[1005185537]，是否正确[true]
 //编码ID[1005185537]，字符串[A7你Gd好7.]，解码ID[1005185537]，是否正确[true]
+```
+- 运行
+```bash
+go run main.go
+```
+
+## php，注意 php 没有无符号整数，所以最大可编码整数为： 2^24 - 1
+- 安装
+```bash
+composer require Vanni\Idmix
+```
+- vim test.php
+```php
+<?php
+use Vanni\Idmix\Idmix;
+$key = 1234567;
+$sid = mt_rand(1000000000000,99999999999999);
+$str = Idmix::Encode($key, $sid);
+$did = Idmix::Decode($key, $str);
+
+printf("原始ID:[%d]，字符串：[%s], 结果ID:[%d]，是否相等：[%s]\n",$sid,$str,$did,$sid==$did);
+
+$my_encoder = new Vanni\Idmix\CustomEncoder("KLNMOPQRSTUVWXYZ-,.+=!@#$%^&*()_<>~自定义的中文加数字abcdefghijklnmopqrstuvwxyz0123456789ABCDEFGHIJ");
+$str = Idmix::Encode($key, $sid, $my_encoder);
+$did = Idmix::Decode($key, $str, $my_encoder);
+printf("原始ID:[%d]，字符串：[%s], 结果ID:[%d]，是否相等：[%s]\n",$sid,$str,$did,$sid==$did);
+```
+- 运行
+```bash
+php test.php
 ```
