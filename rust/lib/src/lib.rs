@@ -5,7 +5,7 @@ const MAX_U64:u64 = (u64::MAX) as u64;
 
 // pub mod encoder;
 pub mod encoder;
-pub mod idmix;
+pub mod idmixer;
 pub mod err;
 
 

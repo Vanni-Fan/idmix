@@ -200,7 +200,7 @@ func Unmix(key, id uint64) (out uint64, err error) {
 
 	out = id ^ randObj.slat
 	if DEBUG {
-		fmt.Printf("加密码校验：[%d => %064b]，校验位[%d]\n", out, out, randObj.randCheck)
+		fmt.Printf("加密码校验：[%d => %064b]，校验位[%d]\n", out, out, randObj.keyCheck)
 	}
 	if randObj.keyCheck != ParityCheck(out) {
 		err = errors.New("校验失败[key]")

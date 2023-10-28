@@ -1,4 +1,6 @@
-use crate::err::MixError;
+use crate::{err::MixError, idmixer};
+
+use super::custom::CustomEncoder;
 
 
 pub trait EncoderDecoder{
@@ -7,28 +9,40 @@ pub trait EncoderDecoder{
 }
 
 
-pub trait Encoder{
-    fn mix(&self)->String;
+pub trait IntEncoder{
+    fn mix(&self, password:u64)->Result<u64,MixError>;
+    fn unmix(&self, password:u64)->Result<u64,MixError>;
+    fn encode(&self, password:u64)->Result<String,MixError>;
 }
 
-pub trait Decoder {
-    fn unmix(&self)->u64;
+pub trait StrDecoder {
+    fn decode(&self, password:u64)->Result<u64,MixError>;
 }
 
-impl Encoder for u64{
-    // 整数直接转换成字符串
-    fn mix(&self)->String {
-        format!("{:x}",self)        
-    }
-}
-impl Decoder for &str{
-    fn unmix(&self)->u64 {
-        0
-    }
-}
-impl Decoder for String {
-    fn unmix(&self)->u64 {
-        0
-    }
-}
+const BASE36: &str = "0123456789abcdefghijklmnopqrstuvwxyz";
 
+impl IntEncoder for u64{
+    fn mix(&self, password:u64)->Result<u64,MixError> {
+        idmixer::mix(password, *self)
+        // Ok(1)
+    }
+    fn unmix(&self, password:u64)->Result<u64,MixError> {
+        idmixer::unmix(password, *self)
+    }
+    fn encode(&self, password:u64)->Result<String,MixError> {
+        let encoder = CustomEncoder::new(BASE36).unwrap();
+        idmixer::encode(password, *self, &encoder)
+    }
+}
+impl StrDecoder for &str{
+    fn decode(&self, password:u64)->Result<u64,MixError> {
+        let encoder = CustomEncoder::new(BASE36).unwrap();
+        idmixer::decode(password, *self, &encoder)
+    }
+}
+impl StrDecoder for String {
+    fn decode(&self, password:u64)->Result<u64,MixError> {
+        let encoder = CustomEncoder::new(BASE36).unwrap();
+        idmixer::decode(password, self.as_str(), &encoder)
+    }
+}

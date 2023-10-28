@@ -23,7 +23,7 @@
 - 假如你区分大小写，可以使用62进制（0-9 + 52个字母）
   
 # demo
-## go，最大可编码整数为： 2^25 - 1
+## go
 - 安装
 ```bash
 go mod init test
@@ -31,7 +31,7 @@ go get github.com/Vanni-Fan/idmix/golang
 go mod vendor
 ```
 - vim mani.go
-```golang
+```go
 package main
 
 import (
@@ -103,4 +103,30 @@ printf("原始ID:[%d]，字符串：[%s], 结果ID:[%d]，是否相等：[%s]\n"
 - 运行
 ```bash
 php test.php
+```
+## rust
+- 安装
+- vim main.rs
+```rust
+use idmix::idmixer;
+
+fn main() {
+    let password = 12345678962342344;
+    let id_before = 123123345234;
+
+    // 基础用法
+    use idmix::encoder::traits::IntEncoder; // 整数加密使用的特质
+    let x = id_before.encode(password).unwrap(); // 整数加密
+
+    use idmix::encoder::traits::StrDecoder; // 字符串解密使用的特质
+    let id_after = x.decode(password).unwrap(); // 整数解密
+    println!("[{}] => [{}] => [{}]", id_before, x, id_after);
+
+    // 自定义用法，创建自己的编码器
+    use idmix::encoder::custom::CustomEncoder; // 自定义编解码器
+    let encoder = CustomEncoder::new("0123456789abcdef").unwrap();
+    let x = idmixer::encode(password, id_before, &encoder).unwrap();
+    let id_after = idmixer::decode(password, x.as_str(), &encoder).unwrap();
+    println!("[{}] => [{}] => [{}]", id_before, x, id_after)
+}
 ```
