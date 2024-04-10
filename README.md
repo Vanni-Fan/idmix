@@ -28,9 +28,8 @@
 ```bash
 go mod init test
 go get github.com/Vanni-Fan/idmix/golang
-go mod vendor
 ```
-- vim mani.go
+- vim main.go
 ```go
 package main
 
