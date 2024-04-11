@@ -2,6 +2,10 @@
 name = "rust"
 version = "0.1.0"
 edition = "2021"
+description = "Confuse numbers of integer type"
+license = "Apache-2.0"
+homepage = "http://vanni.fan"
+repository = "https://github.com/Vanni-Fan/idmix/tree/main/rust/lib"
 
 [dependencies]
 idmix = { path="./lib" }
