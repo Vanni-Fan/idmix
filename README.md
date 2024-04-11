@@ -78,7 +78,8 @@ func main() {
 go run main.go
 ```
 
-## php，注意 php 没有无符号整数，所以最大可编码整数为： 2^24 - 1
+## php
+#### 注意 php 没有无符号整数，所以最大可编码整数为： 2^24 - 1
 - 安装
 ```bash
 composer require Vanni\Idmix
@@ -105,6 +106,9 @@ php test.php
 ```
 ## rust
 - 安装
+```
+cargo add idmix
+```
 - vim main.rs
 ```rust
 use idmix::idmixer;
@@ -128,4 +132,8 @@ fn main() {
     let id_after = idmixer::decode(password, x.as_str(), &encoder).unwrap();
     println!("[{}] => [{}] => [{}]", id_before, x, id_after)
 }
+```
+- 运行
+```
+cargo run src\main.rs
 ```
