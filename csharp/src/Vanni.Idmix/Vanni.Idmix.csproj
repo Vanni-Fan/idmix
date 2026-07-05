@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Vanni.Idmix</RootNamespace>
+    <AssemblyName>Vanni.Idmix</AssemblyName>
+    <Version>0.2.0</Version>
+    <Authors>Vanni</Authors>
+    <Company>Vanni</Company>
+    <Description>XID v1.1: encode typed integer sequences to short strings</Description>
+    <PackageId>Vanni.Idmix</PackageId>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Vanni-Fan/idmix</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Vanni-Fan/idmix</RepositoryUrl>
+    <PackageTags>xid;idmix;encoding;short-id</PackageTags>
+  </PropertyGroup>
+
+</Project>

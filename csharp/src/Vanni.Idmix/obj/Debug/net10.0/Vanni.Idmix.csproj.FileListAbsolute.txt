@@ -1,0 +1,14 @@
+d:\vanni\idmix\csharp\src\Vanni.Idmix\bin\Debug\net10.0\Vanni.Idmix.deps.json
+d:\vanni\idmix\csharp\src\Vanni.Idmix\bin\Debug\net10.0\Vanni.Idmix.dll
+d:\vanni\idmix\csharp\src\Vanni.Idmix\bin\Debug\net10.0\Vanni.Idmix.pdb
+d:\vanni\idmix\csharp\src\Vanni.Idmix\bin\Debug\net10.0\Vanni.Idmix.xml
+d:\vanni\idmix\csharp\src\Vanni.Idmix\obj\Debug\net10.0\Vanni.Idmix.GeneratedMSBuildEditorConfig.editorconfig
+d:\vanni\idmix\csharp\src\Vanni.Idmix\obj\Debug\net10.0\Vanni.Idmix.AssemblyInfoInputs.cache
+d:\vanni\idmix\csharp\src\Vanni.Idmix\obj\Debug\net10.0\Vanni.Idmix.AssemblyInfo.cs
+d:\vanni\idmix\csharp\src\Vanni.Idmix\obj\Debug\net10.0\Vanni.Idmix.csproj.CoreCompileInputs.cache
+d:\vanni\idmix\csharp\src\Vanni.Idmix\obj\Debug\net10.0\Vanni.Idmix.sourcelink.json
+d:\vanni\idmix\csharp\src\Vanni.Idmix\obj\Debug\net10.0\Vanni.Idmix.dll
+d:\vanni\idmix\csharp\src\Vanni.Idmix\obj\Debug\net10.0\refint\Vanni.Idmix.dll
+d:\vanni\idmix\csharp\src\Vanni.Idmix\obj\Debug\net10.0\Vanni.Idmix.xml
+d:\vanni\idmix\csharp\src\Vanni.Idmix\obj\Debug\net10.0\Vanni.Idmix.pdb
+d:\vanni\idmix\csharp\src\Vanni.Idmix\obj\Debug\net10.0\ref\Vanni.Idmix.dll

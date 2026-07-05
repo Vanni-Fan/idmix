@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>Vanni.Idmix</name>
+    </assembly>
+    <members>
+        <member name="T:Vanni.Idmix.IdMix">
+            <summary>XID v1.1 编解码器主入口。</summary>
+        </member>
+        <member name="T:Vanni.Idmix.RadixCodec">
+            <summary>XID 文本层：自定义进制编解码。</summary>
+        </member>
+        <member name="T:Vanni.Idmix.TypedValue">
+            <summary>原始类型索引与带类型整数值。</summary>
+        </member>
+        <member name="T:Vanni.Idmix.XidCodec">
+            <summary>XID v1.1 二进制层编解码。</summary>
+        </member>
+    </members>
+</doc>

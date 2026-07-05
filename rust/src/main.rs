@@ -1,21 +1,24 @@
-use idmix::idmixer;
+use idmix::{IdMix, Value};
 
 fn main() {
-    let password = 12345678962342344;
-    let id_before = 123123345234;
+    let m = IdMix::new().expect("create IdMix");
 
-    // 基础用法
-    use idmix::encoder::traits::IntEncoder; // 整数加密使用的特质
-    let x = id_before.encode(password).unwrap(); // 整数加密
+    let values = [Value::U16(5), Value::I64(-1), Value::U32(40)];
+    let encoded = m.encode(&values).expect("encode");
+    let decoded = m.decode(&encoded).expect("decode");
+    println!("规范示例: {:?} => {:?} => {:?}", values, encoded, decoded);
 
-    use idmix::encoder::traits::StrDecoder; // 字符串解密使用的特质
-    let id_after = x.decode(password).unwrap(); // 整数解密
-    println!("[{}] => [{}] => [{}]", id_before, x, id_after);
+    let large = [Value::U32(2_000_000_000)];
+    let encoded = m.encode(&large).expect("encode");
+    let decoded = m.decode(&encoded).expect("decode");
+    println!("单值 uint32(2000000000): {:?} => {:?} => {:?}", large, encoded, decoded);
 
-    // 自定义用法，创建自己的编码器
-    use idmix::encoder::custom::CustomEncoder; // 自定义编解码器
-    let encoder = CustomEncoder::new("0123456789abcdef").unwrap();
-    let x = idmixer::encode(password, id_before, &encoder).unwrap();
-    let id_after = idmixer::decode(password, x.as_str(), &encoder).unwrap();
-    println!("[{}] => [{}] => [{}]", id_before, x, id_after);
+    let custom = IdMix::builder()
+        .alphabet("abcd")
+        .build()
+        .expect("custom alphabet");
+    let values = [Value::U16(100), Value::I32(-10), Value::U8(3)];
+    let encoded = custom.encode(&values).expect("encode");
+    let decoded = custom.decode(&encoded).expect("decode");
+    println!("四进制: {:?} => {:?} => {:?}", values, encoded, decoded);
 }

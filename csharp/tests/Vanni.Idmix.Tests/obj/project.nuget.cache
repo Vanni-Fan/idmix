@@ -1,0 +1,42 @@
+{
+  "version": 2,
+  "dgSpecHash": "+i3YdaBj/hM=",
+  "success": false,
+  "projectFilePath": "D:\\vanni\\idmix\\csharp\\tests\\Vanni.Idmix.Tests\\Vanni.Idmix.Tests.csproj",
+  "expectedPackageFiles": [],
+  "logs": [
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "无法解析 net10.0 的“Microsoft.NET.Test.Sdk (>= 17.11.1)”。",
+      "projectPath": "D:\\vanni\\idmix\\csharp\\tests\\Vanni.Idmix.Tests\\Vanni.Idmix.Tests.csproj",
+      "filePath": "D:\\vanni\\idmix\\csharp\\tests\\Vanni.Idmix.Tests\\Vanni.Idmix.Tests.csproj",
+      "libraryId": "Microsoft.NET.Test.Sdk",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "无法解析 net10.0 的“xunit (>= 2.9.2)”。",
+      "projectPath": "D:\\vanni\\idmix\\csharp\\tests\\Vanni.Idmix.Tests\\Vanni.Idmix.Tests.csproj",
+      "filePath": "D:\\vanni\\idmix\\csharp\\tests\\Vanni.Idmix.Tests\\Vanni.Idmix.Tests.csproj",
+      "libraryId": "xunit",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "无法解析 net10.0 的“xunit.runner.visualstudio (>= 2.8.2)”。",
+      "projectPath": "D:\\vanni\\idmix\\csharp\\tests\\Vanni.Idmix.Tests\\Vanni.Idmix.Tests.csproj",
+      "filePath": "D:\\vanni\\idmix\\csharp\\tests\\Vanni.Idmix.Tests\\Vanni.Idmix.Tests.csproj",
+      "libraryId": "xunit.runner.visualstudio",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    }
+  ]
+}

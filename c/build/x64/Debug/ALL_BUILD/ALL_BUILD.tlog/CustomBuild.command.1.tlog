@@ -1,0 +1,10 @@
+^D:\VANNI\IDMIX\C\CMAKELISTS.TXT
+setlocal
+"D:\Program Files\CMake\bin\cmake.exe" -SD:/vanni/idmix/c -BD:/vanni/idmix/c/build --check-stamp-file D:/vanni/idmix/c/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

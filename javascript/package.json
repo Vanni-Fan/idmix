@@ -1,0 +1,27 @@
+{
+  "name": "@vanni/idmix",
+  "version": "0.2.0",
+  "description": "XID v1.1: encode typed integer sequences to short strings",
+  "type": "module",
+  "main": "src/idmix.js",
+  "exports": {
+    ".": "./src/idmix.js"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test test/test_idmix.js"
+  },
+  "keywords": ["xid", "idmix", "encoding", "short-id"],
+  "license": "Apache-2.0",
+  "author": "Vanni",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Vanni-Fan/idmix.git",
+    "directory": "javascript"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

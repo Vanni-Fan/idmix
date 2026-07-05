@@ -1,8 +1,13 @@
 {
     "name": "vanni/idmix",
-    "description": "mix the int id",
+    "description": "XID v1.1: encode typed integer sequences to short strings",
     "type": "library",
     "license": "Apache-2.0",
+    "homepage": "https://github.com/Vanni-Fan/idmix",
+    "support": {
+        "issues": "https://github.com/Vanni-Fan/idmix/issues",
+        "source": "https://github.com/Vanni-Fan/idmix"
+    },
     "autoload": {
         "psr-4": {
             "Vanni\\Idmix\\": "src/"
@@ -15,8 +20,8 @@
         }
     ],
     "require": {
-        "php":">8.0",
-        "ext-mcmath":"*",
-        "ext-mbstring":"*"
+        "php": ">=8.1",
+        "ext-bcmath": "*",
+        "ext-mbstring": "*"
     }
 }

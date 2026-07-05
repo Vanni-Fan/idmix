@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vanni-idmix"
+version = "0.2.0"
+description = "XID v1.1: encode typed integer sequences to short strings"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Vanni", email = "web.cn@msn.com" }]
+requires-python = ">=3.9"
+keywords = ["xid", "idmix", "encoding", "short-id"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Homepage = "https://github.com/Vanni-Fan/idmix"
+Repository = "https://github.com/Vanni-Fan/idmix"
+Documentation = "https://github.com/Vanni-Fan/idmix/blob/main/arithmetic.md"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["idmix*"]
