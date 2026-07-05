@@ -1,3 +1,125 @@
+# --- General / IDE ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+*.iml
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
 
-php/vendor
-rust/target
+# --- CI / release artifacts ---
+artifacts/
+*.nupkg
+*.snupkg
+
+# --- PHP / Composer ---
+php/vendor/
+vendor/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+python/vanni_idmix-*/
+
+# --- Node.js ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# --- Java / Maven ---
+target/
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+.gradle/
+build/
+!**/src/**/build/
+
+# --- C# / VB.NET / .NET ---
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Ll]og/
+[Ll]ogs/
+*.dll
+*.exe
+*.pdb
+*.cache
+project.lock.json
+project.fragment.lock.json
+*.nuget.props
+*.nuget.targets
+packages/
+TestResults/
+*.DotSettings.user
+
+# --- Rust ---
+rust/target/
+**/target/
+
+# --- Go ---
+*.test
+*.out
+golang/coverage.out
+
+# --- C / C++ / CMake ---
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+compile_commands.json
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.tlog
+*.lastbuildstate
+*.recipe
+*.iobj
+*.ipdb
+c/build/
+cpp/build/
+
+# --- Local config (secrets) ---
+java/settings.xml
+!java/settings.xml.example

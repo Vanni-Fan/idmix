@@ -1,6 +1,0 @@
-D:/vanni/idmix/c/build/CMakeFiles/idmix_c.dir
-D:/vanni/idmix/c/build/CMakeFiles/idmix_c_test.dir
-D:/vanni/idmix/c/build/CMakeFiles/RUN_TESTS.dir
-D:/vanni/idmix/c/build/CMakeFiles/INSTALL.dir
-D:/vanni/idmix/c/build/CMakeFiles/ALL_BUILD.dir
-D:/vanni/idmix/c/build/CMakeFiles/ZERO_CHECK.dir

@@ -202,13 +202,13 @@ const out = m.decode(s);
 
 ```bash
 # Maven 依赖（发布后）：
-# <groupId>fan.vanni</groupId><artifactId>idmix</artifactId><version>0.2.0</version>
+# groupId: io.github.vanni-fan, artifactId: idmix
 cd java && mvn test
 ```
 
 ```java
-import fan.vanni.idmix.IdMix;
-import fan.vanni.idmix.TypedValue;
+import io.github.vannifan.idmix.IdMix;
+import io.github.vannifan.idmix.TypedValue;
 
 IdMix m = IdMix.newDefault();
 String s = m.encode(TypedValue.u16(5), TypedValue.i64(-1), TypedValue.u32(40));
@@ -343,7 +343,7 @@ idmix/
 ├── php/             # PHP (Composer: vanni/idmix)
 ├── python/          # Python (pip: vanni-idmix)
 ├── javascript/      # JavaScript (npm: @vanni/idmix)
-├── java/            # Java (Maven: fan.vanni:idmix)
+├── java/            # Java (Maven: io.github.vanni-fan:idmix)
 ├── csharp/          # C# (NuGet: Vanni.Idmix)
 ├── vb/              # VB.NET (NuGet: Vanni.Idmix.Vb)
 ├── cpp/             # C++ 库
@@ -392,7 +392,7 @@ cd c && cmake -B build && cmake --build build && build/Debug/idmix_c_test
 | Rust | `cargo add idmix` |
 | Python | `pip install vanni-idmix` |
 | JavaScript | `npm install @vanni/idmix` |
-| Java | Maven `fan.vanni:idmix:0.2.0` |
+| Java | Maven `io.github.vanni-fan:idmix:0.2.0` |
 | C# | `dotnet add package Vanni.Idmix` |
 | VB.NET | `dotnet add package Vanni.Idmix.Vb` |
 | C/C++ | CMake FetchContent 或 vcpkg（见 PACKAGING.md） |

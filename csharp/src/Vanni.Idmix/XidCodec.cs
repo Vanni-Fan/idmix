@@ -77,7 +77,7 @@ public static class XidCodec
         if (IsUnsigned(tv.OType) && tv.Val >= 0 && tv.Val <= 15)
         {
             var wb = WidthBits(tv.OType);
-            return new byte[] { (byte)((wb << 4) | (tv.Val & 0x0F)) };
+            return new byte[] { (byte)(((uint)wb << 4) | ((uint)tv.Val & 0x0Fu)) };
         }
         if (IsSigned(tv.OType) && tv.Val >= -16 && tv.Val <= -1)
         {
