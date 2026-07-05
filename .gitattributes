@@ -1,0 +1,12 @@
+# Exclude non-PHP paths from Composer dist archives (smaller vendor install)
+/arithmetic.md export-ignore
+/golang export-ignore
+/rust export-ignore
+/python export-ignore
+/javascript export-ignore
+/java export-ignore
+/csharp export-ignore
+/vb export-ignore
+/cpp export-ignore
+/c export-ignore
+/PACKAGING.md export-ignore
