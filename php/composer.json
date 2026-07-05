@@ -1,12 +1,12 @@
 {
     "name": "vanni/idmix",
-    "description": "XID v1.1: encode typed integer sequences to short strings",
+    "description": "XID v1.1: encode typed integer sequences to short strings (local dev in php/)",
     "type": "library",
     "license": "Apache-2.0",
     "homepage": "https://github.com/Vanni-Fan/idmix",
     "support": {
         "issues": "https://github.com/Vanni-Fan/idmix/issues",
-        "source": "https://github.com/Vanni-Fan/idmix"
+        "source": "https://github.com/Vanni-Fan/idmix/php/"
     },
     "autoload": {
         "psr-4": {
