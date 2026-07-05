@@ -6,6 +6,10 @@
 #   Package Owner: vanni.fan
 #
 # GitHub repo secret: NUGET_USER = vanni.fan  (profile name, not email)
+#
+# IMPORTANT: Do NOT use "Re-run" on an old failed run — it rebuilds the same
+# old commit. After pushing fixes, use Actions → Publish NuGet → Run workflow.
+# For release triggers, create a new tag/release on the fixed commit.
 
 name: Publish NuGet
 
@@ -13,6 +17,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or tag to build (default: main)'
+        required: false
+        default: main
 
 permissions:
   id-token: write
@@ -23,6 +32,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
+      - name: Show build commit
+        run: |
+          echo "event=${{ github.event_name }}"
+          echo "ref=${{ github.ref }}"
+          echo "sha=${{ github.sha }}"
+          git log -1 --oneline
 
       - uses: actions/setup-dotnet@v4
         with:

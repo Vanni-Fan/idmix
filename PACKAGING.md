@@ -186,23 +186,25 @@ NuGet 账号：**vanni.fan**（登录名，与包名 `Vanni.Idmix` 无关）
 ### 方式 A：Trusted Publishing（推荐，无需长期 API Key）
 
 1. 在 GitHub 仓库 **Settings → Secrets → Actions** 添加：
-   - `NUGET_USER` = `vanni.fan`（NuGet **用户名**，不是邮箱）
-
+  - `NUGET_USER` = `vanni.fan`（NuGet **用户名**，不是邮箱）
 2. 在 [nuget.org → Trusted Publishing → Create](https://www.nuget.org/manage/trustedpublishers) 填写：
 
-| 字段 | 填什么 |
-|------|--------|
-| Policy Name | `idmix-publish`（任意） |
-| Package Owner | `vanni.fan` |
-| Repository Owner | `Vanni-Fan` |
-| Repository | `idmix` |
-| Workflow File | `publish-nuget.yml` |
 
-3. 将 `.github/workflows/publish-nuget.yml` push 到 GitHub
+| 字段               | 填什么                 |
+| ---------------- | ------------------- |
+| Policy Name      | `idmix-publish`（任意） |
+| Package Owner    | `vanni.fan`         |
+| Repository Owner | `Vanni-Fan`         |
+| Repository       | `idmix`             |
+| Workflow File    | `publish-nuget.yml` |
 
-4. 发布方式（二选一）：
-   - GitHub → **Actions** → **Publish NuGet** → **Run workflow**（手动）
-   - 或创建 GitHub **Release** tag（如 `v0.2.0`）自动触发
+
+1. 将 `.github/workflows/publish-nuget.yml` push 到 GitHub
+2. 发布方式（二选一）：
+  - GitHub → **Actions** → **Publish NuGet** → **Run workflow**（手动）
+  - 或创建 GitHub **Release** tag（如 `v0.2.0`）自动触发
+
+
 
 ### 方式 B：API Key（本机一次性上传，官网标注 Not recommended）
 
@@ -247,17 +249,3 @@ target_link_libraries(your_app PRIVATE idmix::idmix)
 vcpkg install idmix
 ```
 
----
-
-
-
-## 需注册账号 checklist
-
-- [x] **GitHub** — Go 自动可用
-- [x] **Packagist** — PHP
-- [x] **crates.io** — Rust
-- [x] **PyPI** — Python
-- [x] **npm** — JavaScript
-- [ ] **Sonatype Central** — Java
-- [ ] **NuGet** — C# / VB.NET
-- [ ] **vcpkg**（可选）— C/C++

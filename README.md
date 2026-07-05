@@ -151,9 +151,8 @@ $out = $m->decode($str);
 
 ### Rust
 
-```toml
-[dependencies]
-idmix = { path = "../rust/lib" }  # 或 crates.io 发布后 cargo add idmix
+```bash
+cargo add idmix@0.2.0
 ```
 
 ```rust
@@ -186,24 +185,28 @@ out = m.decode(s)
 ### JavaScript (Node.js)
 
 ```bash
-npm install @vanni/idmix
+npm install @vanni.fan/idmix
 ```
 
 ```javascript
-import { IdMix } from '@vanni/idmix';
-import { u16, i64, u32 } from '@vanni/idmix/src/typed_value.js';
+import { IdMix } from '@vanni.fan/idmix';
 
 const m = IdMix.new();
-const s = m.encode(u16(5), i64(-1), u32(40));
+// otype: 1=uint16, 7=int64, 2=uint32
+const s = m.encode({ otype: 1, val: 5 }, { otype: 7, val: -1 }, { otype: 2, val: 40 });
 const out = m.decode(s);
 ```
 
 ### Java
 
-```bash
-# Maven 依赖（发布后）：
-# groupId: io.github.vanni-fan, artifactId: idmix
-cd java && mvn test
+Maven 依赖（[Maven Central](https://central.sonatype.com/artifact/io.github.vanni-fan/idmix/0.2.0)）：
+
+```xml
+<dependency>
+    <groupId>io.github.vanni-fan</groupId>
+    <artifactId>idmix</artifactId>
+    <version>0.2.0</version>
+</dependency>
 ```
 
 ```java
@@ -245,10 +248,24 @@ Dim outList = m.Decode(s)
 
 ### C++
 
-CMake FetchContent 或本地构建：
+C/C++ **没有**类似 npm / crates.io 的统一官方包仓库，无需额外「发布」步骤。用户在自己的 CMake 工程里通过 **FetchContent** 从 GitHub 拉取源码即可（下面这段 CMake 是**用户项目**里写的，不是本仓库维护项）：
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(idmix
+  GIT_REPOSITORY https://github.com/Vanni-Fan/idmix.git
+  GIT_TAG v0.2.0
+  SOURCE_SUBDIR cpp
+)
+FetchContent_MakeAvailable(idmix)
+target_link_libraries(your_app PRIVATE idmix::idmix)
+```
+
+也可 clone 后本地构建：
 
 ```bash
-cd cpp && cmake -B build && cmake --build build
+git clone https://github.com/Vanni-Fan/idmix.git
+cd idmix/cpp && cmake -B build && cmake --build build
 ```
 
 ```cpp
@@ -262,8 +279,24 @@ auto out = m.decode(s);
 
 ### C
 
+同样通过 FetchContent 集成（`SOURCE_SUBDIR` 改为 `c`，链接 `idmix::c`）：
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(idmix_c
+  GIT_REPOSITORY https://github.com/Vanni-Fan/idmix.git
+  GIT_TAG v0.2.0
+  SOURCE_SUBDIR c
+)
+FetchContent_MakeAvailable(idmix_c)
+target_link_libraries(your_app PRIVATE idmix::c)
+```
+
+或本地构建：
+
 ```bash
-cd c && cmake -B build && cmake --build build
+git clone https://github.com/Vanni-Fan/idmix.git
+cd idmix/c && cmake -B build && cmake --build build
 ```
 
 ```c
@@ -342,7 +375,7 @@ idmix/
 ├── rust/lib/        # Rust crate
 ├── php/             # PHP (Composer: vanni/idmix)
 ├── python/          # Python (pip: vanni-idmix)
-├── javascript/      # JavaScript (npm: @vanni/idmix)
+├── javascript/      # JavaScript (npm: @vanni.fan/idmix)
 ├── java/            # Java (Maven: io.github.vanni-fan:idmix)
 ├── csharp/          # C# (NuGet: Vanni.Idmix)
 ├── vb/              # VB.NET (NuGet: Vanni.Idmix.Vb)
@@ -383,21 +416,21 @@ cd c && cmake -B build && cmake --build build && build/Debug/idmix_c_test
 
 ## 包安装（无需 git clone）
 
-各语言可通过包管理器直接安装，详见 [PACKAGING.md](PACKAGING.md)。
+当前版本 **0.2.0**。各语言可通过包管理器直接安装；发布细节见 [PACKAGING.md](PACKAGING.md)。
 
-| 语言 | 安装命令 |
-|------|----------|
-| Go | `go get github.com/Vanni-Fan/idmix/golang` |
-| PHP | `composer require vanni/idmix` |
-| Rust | `cargo add idmix` |
-| Python | `pip install vanni-idmix` |
-| JavaScript | `npm install @vanni/idmix` |
-| Java | Maven `io.github.vanni-fan:idmix:0.2.0` |
-| C# | `dotnet add package Vanni.Idmix` |
-| VB.NET | `dotnet add package Vanni.Idmix.Vb` |
-| C/C++ | CMake FetchContent 或 vcpkg（见 PACKAGING.md） |
+| 语言 | 安装命令 | 包仓库 |
+|------|----------|--------|
+| Go | `go get github.com/Vanni-Fan/idmix/golang` | [pkg.go.dev](https://pkg.go.dev/github.com/Vanni-Fan/idmix/golang) |
+| PHP | `composer require vanni/idmix` | [Packagist](https://packagist.org/packages/vanni/idmix) |
+| Rust | `cargo add idmix@0.2.0` | [crates.io](https://crates.io/crates/idmix/0.2.0) |
+| Python | `pip install vanni-idmix` | [PyPI](https://pypi.org/project/vanni-idmix/) |
+| JavaScript | `npm install @vanni.fan/idmix` | [npm](https://www.npmjs.com/package/@vanni.fan/idmix) |
+| Java | Maven `io.github.vanni-fan:idmix:0.2.0` | [Maven Central](https://central.sonatype.com/artifact/io.github.vanni-fan/idmix/0.2.0) |
+| C# | `dotnet add package Vanni.Idmix` | [NuGet](https://www.nuget.org/packages/Vanni.Idmix) |
+| VB.NET | `dotnet add package Vanni.Idmix.Vb` | [NuGet](https://www.nuget.org/packages/Vanni.Idmix.Vb) |
+| C/C++ | 见上文 **FetchContent**（用户 CMake 集成） | [GitHub](https://github.com/Vanni-Fan/idmix) |
 
-> **首次发布**：仓库已配置好包元数据，你需在 Packagist、PyPI、npm、crates.io、NuGet、Sonatype 等平台注册账号并执行一次发布。详见 [PACKAGING.md](PACKAGING.md) 中的账号 checklist。
+**C/C++ 说明**：没有像 PyPI / NuGet 那样的统一官方包仓库，也**不需要**你再去某个官网「发布」。仓库里的 `cpp/`、`c/` 即为源码库；用户在**自己的** CMake 工程里写 `FetchContent_Declare(...)` 从 GitHub 拉取即可。可选的 [vcpkg](https://vcpkg.io) 端口尚未提交上游，不影响使用。
 
 ## 限制
 
