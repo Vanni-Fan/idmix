@@ -1,0 +1,50 @@
+# Publish C# / VB.NET packages to nuget.org via Trusted Publishing (OIDC).
+# Setup: https://www.nuget.org/manage/trustedpublishers
+#   Repository Owner: Vanni-Fan
+#   Repository: idmix
+#   Workflow File: publish-nuget.yml
+#   Package Owner: vanni.fan
+#
+# GitHub repo secret: NUGET_USER = vanni.fan  (profile name, not email)
+
+name: Publish NuGet
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Pack C#
+        run: dotnet pack csharp/src/Vanni.Idmix/Vanni.Idmix.csproj -c Release --output artifacts
+
+      - name: Pack VB.NET
+        run: dotnet pack vb/src/Vanni.Idmix.Vb/Vanni.Idmix.Vb.vbproj -c Release --output artifacts
+
+      - name: NuGet login (OIDC)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push to nuget.org
+        run: |
+          for f in artifacts/*.nupkg; do
+            dotnet nuget push "$f" \
+              --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
