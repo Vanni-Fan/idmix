@@ -77,13 +77,13 @@ public static class XidCodec
         if (IsUnsigned(tv.OType) && tv.Val >= 0 && tv.Val <= 15)
         {
             var wb = WidthBits(tv.OType);
-            return [(byte)((wb << 4) | tv.Val)];
+            return new byte[] { (byte)((wb << 4) | (tv.Val & 0x0F)) };
         }
         if (IsSigned(tv.OType) && tv.Val >= -16 && tv.Val <= -1)
         {
             var wb = WidthBits(tv.OType);
             var v = (int)(-tv.Val - 1);
-            return [(byte)((1 << 6) | (wb << 4) | v)];
+            return new byte[] { (byte)((1 << 6) | (wb << 4) | v) };
         }
         var swPayload = MinimalComplementBytes(tv.OType, tv.Val);
         var sw = swPayload[0];
@@ -93,7 +93,17 @@ public static class XidCodec
         return outBuf;
     }
 
-    private readonly record struct DecodeResult(TypedValue Tv, int Consumed);
+    private sealed class DecodeResult
+    {
+        public TypedValue Tv { get; }
+        public int Consumed { get; }
+
+        public DecodeResult(TypedValue tv, int consumed)
+        {
+            Tv = tv;
+            Consumed = consumed;
+        }
+    }
 
     private static DecodeResult DecodeObject(byte[] data, int offset)
     {
