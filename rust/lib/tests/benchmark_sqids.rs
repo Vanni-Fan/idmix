@@ -6,6 +6,9 @@ use idmix::{IdMix, Value, DEFAULT_ALPHABET};
 use sqids::Sqids;
 
 const TEST_UINT32_LARGE_SINGLE: u32 = 2_000_000_000;
+const EXTREME_UINT32_MAX: u32 = 4_294_967_295;
+const EXTREME_INT64_MAX: i64 = 9_223_372_036_854_775_807;
+const EXTREME_UINT64_MAX: u64 = 18_446_744_073_709_551_615;
 
 struct CompareCase {
     name: &'static str,
@@ -44,6 +47,34 @@ fn default_cases() -> Vec<CompareCase> {
             name: "小整数密集 [0..9]",
             numbers: (0..10).map(|n| n as u64).collect(),
             idmix_values: (0..10).map(|n| Value::U8(n)).collect(),
+        },
+        CompareCase {
+            name: "极值 uint32_max",
+            numbers: vec![EXTREME_UINT32_MAX as u64],
+            idmix_values: vec![Value::U32(EXTREME_UINT32_MAX)],
+        },
+        CompareCase {
+            name: "极值 int64_max",
+            numbers: vec![EXTREME_INT64_MAX as u64],
+            idmix_values: vec![Value::I64(EXTREME_INT64_MAX)],
+        },
+        CompareCase {
+            name: "极值 uint64_max",
+            numbers: vec![EXTREME_UINT64_MAX],
+            idmix_values: vec![Value::U64(EXTREME_UINT64_MAX)],
+        },
+        CompareCase {
+            name: "极值三元组 [u32max,i64max,u64max]",
+            numbers: vec![
+                EXTREME_UINT32_MAX as u64,
+                EXTREME_INT64_MAX as u64,
+                EXTREME_UINT64_MAX,
+            ],
+            idmix_values: vec![
+                Value::U32(EXTREME_UINT32_MAX),
+                Value::I64(EXTREME_INT64_MAX),
+                Value::U64(EXTREME_UINT64_MAX),
+            ],
         },
     ]
 }
@@ -124,9 +155,42 @@ fn compare_sqids_performance() {
             vec![Value::U32(1), Value::U32(2), Value::U32(3)],
         ),
         (
+            "Encode [1001,1690000000,3]",
+            vec![1001, 1_690_000_000, 3],
+            vec![Value::U32(1001), Value::U64(1_690_000_000), Value::U8(3)],
+        ),
+        (
             "Encode uint32 [2000000000]",
             vec![TEST_UINT32_LARGE_SINGLE as u64],
             vec![Value::U32(TEST_UINT32_LARGE_SINGLE)],
+        ),
+        (
+            "Encode 极值 uint32_max",
+            vec![EXTREME_UINT32_MAX as u64],
+            vec![Value::U32(EXTREME_UINT32_MAX)],
+        ),
+        (
+            "Encode 极值 int64_max",
+            vec![EXTREME_INT64_MAX as u64],
+            vec![Value::I64(EXTREME_INT64_MAX)],
+        ),
+        (
+            "Encode 极值 uint64_max",
+            vec![EXTREME_UINT64_MAX],
+            vec![Value::U64(EXTREME_UINT64_MAX)],
+        ),
+        (
+            "Encode 极值三元组 [u32max,i64max,u64max]",
+            vec![
+                EXTREME_UINT32_MAX as u64,
+                EXTREME_INT64_MAX as u64,
+                EXTREME_UINT64_MAX,
+            ],
+            vec![
+                Value::U32(EXTREME_UINT32_MAX),
+                Value::I64(EXTREME_INT64_MAX),
+                Value::U64(EXTREME_UINT64_MAX),
+            ],
         ),
     ];
 

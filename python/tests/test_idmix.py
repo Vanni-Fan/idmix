@@ -9,6 +9,16 @@ import unittest
 from idmix import IdMix, OType, TypedValue, i64, u16, u32, u64, u8, i32, i16, i8
 from idmix import xid_codec
 
+from cross_language import (
+    EXTREME_INT32_MIN,
+    EXTREME_INT64_MAX,
+    EXTREME_INT64_MIN,
+    EXTREME_UINT32_MAX,
+    EXTREME_UINT64_MAX,
+    load_cross_language_vectors,
+    materialize_otype_val,
+)
+
 
 def _hex(b: bytes) -> str:
     return " ".join(f"{x:02X}" for x in b) if b else "(empty)"
@@ -85,6 +95,30 @@ class TestIdMix(unittest.TestCase):
             seen.add(m.encode(u32(42)))
         print(f"\n>> 变体多态: u32(42) 编码 50 次 => {len(seen)} 种不同字符串")
         self.assertGreaterEqual(len(seen), 2)
+
+    def test_extreme_values_round_trip(self) -> None:
+        m = IdMix.new()
+        cases = [
+            ("uint32_max", [u32(EXTREME_UINT32_MAX)]),
+            ("int32_min", [i32(EXTREME_INT32_MIN)]),
+            ("int64_min", [i64(EXTREME_INT64_MIN)]),
+            ("int64_max", [i64(EXTREME_INT64_MAX)]),
+            ("uint64_max", [u64(EXTREME_UINT64_MAX)]),
+        ]
+        for name, values in cases:
+            with self.subTest(name):
+                log_round_trip(self, m, name, values)
+
+    def test_cross_language_vectors(self) -> None:
+        data = load_cross_language_vectors()
+        m = IdMix.new(data["alphabet"])
+        for case in data["cases"]:
+            with self.subTest(case["name"]):
+                decoded = m.decode(case["encoded"])
+                self.assertEqual(len(decoded), len(case["values"]))
+                for i, want in enumerate(case["values"]):
+                    expected = materialize_otype_val(want["otype"], want["val"])
+                    self.assertEqual(decoded[i], expected, f"[{i}] {case['name']}")
 
 
 if __name__ == "__main__":

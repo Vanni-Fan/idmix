@@ -85,15 +85,14 @@ export function decodeBinary(m, data) {
 /** @param {import('./typed_value.js').TypedValue} tv */
 function encodeObject(tv) {
   validateRange(tv.otype, tv.val);
-  if (isUnsigned(tv.otype) && tv.val >= 0 && tv.val <= 15) {
-    return [((widthBits(tv.otype) << 4) | tv.val) & 0xff];
-  }
-  if (isSigned(tv.otype) && tv.val >= -16 && tv.val <= -1) {
-    const v = -tv.val - 1;
-    return [((1 << 6) | (widthBits(tv.otype) << 4) | v) & 0xff];
-  }
-  const [sw, payload] = minimalComplementBytes(tv.otype, tv.val);
-  return [0x80 | (sw << 4) | tv.otype, ...payload];
+  const embedded = tryEmbeddedHead(tv.otype, tv.val);
+  if (embedded !== null) return [embedded & 0xff];
+  const [mag, neg] = magnitudeFromTyped(tv.otype, tv.val);
+  const sw = swFromMagnitude(mag);
+  const payload = uintToLEBytes(mag, SW_BYTES[sw]);
+  let head = 0x80 | (sw << 4) | tv.otype;
+  if (neg) head |= 1 << 6;
+  return [head, ...payload];
 }
 
 /** @param {Uint8Array} data */
@@ -108,15 +107,16 @@ function decodeObject(data) {
     const val = sign === 0 ? v : -v - 1;
     return [{ otype, val }, 1];
   }
-  if ((head >> 6) & 1) throw new Error('reserved bit set in extended mode');
   const sw = (head >> 4) & 3;
   const otype = head & 0x0f;
   if (otype > OType.INT64) throw new Error(`invalid otype ${otype}`);
   const numBytes = SW_BYTES[sw];
   if (data.length < 1 + numBytes) throw new Error('truncated object payload');
-  let raw = 0;
-  for (let i = 0; i < numBytes; i++) raw |= data[1 + i] << (8 * i);
-  const val = reconstructInt(otype, sw, raw >>> 0);
+  let mag = 0n;
+  for (let i = 0; i < numBytes; i++) mag |= BigInt(data[1 + i]) << BigInt(8 * i);
+  const neg = ((head >> 6) & 1) !== 0;
+  const val = valueFromMagnitude(mag, neg);
+  validateRange(otype, val);
   return [{ otype, val }, 1 + numBytes];
 }
 
@@ -129,88 +129,55 @@ function widthBits(otype) {
   return m[otype] ?? 3;
 }
 
-function targetBits(otype) {
-  const m = { [OType.UINT8]: 8, [OType.INT8]: 8, [OType.UINT16]: 16, [OType.INT16]: 16,
-              [OType.UINT32]: 32, [OType.INT32]: 32 };
-  return m[otype] ?? 64;
+function magnitudeFromTyped(otype, val) {
+  const bval = typeof val === 'bigint' ? val : BigInt(val);
+  if (isUnsigned(otype)) return [BigInt.asUintN(64, bval), false];
+  if (bval < 0n) return [-bval, true];
+  return [bval, false];
 }
 
-function minimalComplementBytes(otype, val) {
-  if (val === 0) return [0, [0]];
-  if (isUnsigned(otype)) {
-    if (val < 0) throw new Error(`negative value ${val} for unsigned type`);
-    for (let sw = 0; sw < 4; sw++) {
-      const size = SW_BYTES[sw];
-      if (size < 8 && val >= pow2(size * 8)) continue;
-      const buf = uintToLEBytes(val >>> 0, size);
-      if ((buf[size - 1] & 0x80) === 0) return [sw, buf];
-    }
-    throw new Error('value too large for unsigned type');
+function swFromMagnitude(mag) {
+  const m = typeof mag === 'bigint' ? mag : BigInt(mag);
+  if (m < 256n) return 0;
+  if (m < 65536n) return 1;
+  if (m < 4294967296n) return 2;
+  return 3;
+}
+
+function tryEmbeddedHead(otype, val) {
+  const [mag, neg] = magnitudeFromTyped(otype, val);
+  if (mag >= 17n) return null;
+  const wb = widthBits(otype);
+  if (mag === 16n) {
+    if (neg) return (1 << 6) | (wb << 4) | 15;
+    return null;
   }
-  const tbits = targetBits(otype);
-  const mask = tbits === 64 ? 0xffffffffffffffffn : BigInt(maskForBits(tbits));
-  let uval = BigInt(val) & mask;
-  if (val < 0) {
-    for (let sw = 0; sw < 4; sw++) {
-      const size = SW_BYTES[sw];
-      const shift = size * 8;
-      if (shift >= tbits) return [sw, uintToLEBytes(Number(uval), size)];
-      const lower = Number(uval & ((1n << BigInt(shift)) - 1n));
-      const upper = Number(uval >> BigInt(shift));
-      const upperMask = maskForBits(tbits - shift);
-      if (upper !== upperMask) continue;
-      const highByte = (lower >> (shift - 8)) & 0xff;
-      if ((highByte & 0x80) === 0) continue;
-      return [sw, uintToLEBytes(lower, size)];
-    }
-  } else {
-    const u = Number(uval);
-    for (let sw = 0; sw < 4; sw++) {
-      const size = SW_BYTES[sw];
-      if (size < 8 && u >= pow2(size * 8)) continue;
-      const buf = uintToLEBytes(u, size);
-      if ((buf[size - 1] & 0x80) === 0) return [sw, buf];
-    }
-  }
-  const sw = { 8: 0, 16: 1, 32: 2 }[tbits] ?? 3;
-  return [sw, uintToLEBytes(Number(uval), SW_BYTES[sw])];
+  if (neg) return (1 << 6) | (wb << 4) | Number(mag - 1n);
+  return (wb << 4) | Number(mag);
+}
+
+function valueFromMagnitude(mag, neg) {
+  const m = typeof mag === 'bigint' ? mag : BigInt(mag);
+  if (!neg) return m <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(m) : m;
+  if (m === 1n << 63n) return -(1n << 63n);
+  const v = -m;
+  return v >= BigInt(Number.MIN_SAFE_INTEGER) && v <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(v) : v;
 }
 
 function uintToLEBytes(v, size) {
+  const bval = typeof v === 'bigint' ? v : BigInt(v);
   const buf = [];
-  for (let i = 0; i < size; i++) buf.push((v >> (8 * i)) & 0xff);
+  for (let i = 0; i < size; i++) buf.push(Number((bval >> BigInt(8 * i)) & 0xffn));
   return buf;
 }
 
-function reconstructInt(otype, sw, raw) {
-  const tbits = targetBits(otype);
-  const storedBits = SW_BYTES[sw] * 8;
-  if (isUnsigned(otype)) {
-    const mask = maskForBits(tbits);
-    return (raw >>> 0) & mask;
-  }
-  const signBit = (raw >> (storedBits - 1)) & 1;
-  if (tbits <= storedBits) {
-    const mask = maskForBits(tbits);
-    let val = raw & mask;
-    if (signBit === 1 && tbits < 32 && (val & pow2(tbits - 1))) val -= pow2(tbits);
-    return val;
-  }
-  let extended;
-  if (signBit === 1) {
-    const extendMask = (~(pow2(storedBits) - 1)) & maskForBits(tbits);
-    extended = raw | extendMask;
-  } else extended = raw;
-  if (extended >= pow2(tbits - 1)) extended -= pow2(tbits);
-  return extended;
-}
-
 function validateRange(otype, val) {
+  const bval = typeof val === 'bigint' ? val : BigInt(val);
   const ranges = {
-    [OType.UINT8]: [0, 0xff], [OType.UINT16]: [0, 0xffff], [OType.UINT32]: [0, 0xffffffff],
-    [OType.UINT64]: [0, Infinity], [OType.INT8]: [-128, 127], [OType.INT16]: [-32768, 32767],
-    [OType.INT32]: [-2147483648, 2147483647], [OType.INT64]: [-Infinity, Infinity],
+    [OType.UINT8]: [0n, 0xffn], [OType.UINT16]: [0n, 0xffffn], [OType.UINT32]: [0n, 0xffffffffn],
+    [OType.UINT64]: [0n, 0xffffffffffffffffn], [OType.INT8]: [-128n, 127n], [OType.INT16]: [-32768n, 32767n],
+    [OType.INT32]: [-2147483648n, 2147483647n], [OType.INT64]: [-0x8000000000000000n, 0x7fffffffffffffffn],
   };
-  const [lo, hi] = ranges[otype] ?? [0, 0];
-  if (val < lo || val > hi) throw new Error(`value ${val} out of range for otype ${otype}`);
+  const [lo, hi] = ranges[otype] ?? [0n, 0n];
+  if (bval < lo || bval > hi) throw new Error(`value ${val} out of range for otype ${otype}`);
 }

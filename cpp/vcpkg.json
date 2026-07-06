@@ -1,6 +1,6 @@
 {
   "name": "idmix",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "XID v1.1: encode typed integer sequences to short strings",
   "homepage": "https://github.com/Vanni-Fan/idmix",
   "license": "Apache-2.0",

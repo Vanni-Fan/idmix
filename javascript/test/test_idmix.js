@@ -5,8 +5,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { IdMix } from '../src/idmix.js';
-import { u8, u16, u32, i32, i64 } from '../src/typed_value.js';
+import { u8, u16, u32, i32, i64, u64, typedValuesEqual } from '../src/typed_value.js';
 import * as xidCodec from '../src/xid_codec.js';
+import { loadCrossLanguageVectors, materializeOtypeVal, EXTREME } from './cross_language.js';
 
 /** @param {Uint8Array} b */
 function hex(b) {
@@ -30,7 +31,7 @@ function logRoundTrip(m, title, values) {
     const mark = got.otype === want.otype && got.val === want.val ? '✓' : '✗';
     console.log(`  校验[${i}]: ${mark}  want(${want.otype},${want.val}) => got(${got.otype},${got.val})`);
     assert.equal(got.otype, want.otype);
-    assert.equal(got.val, want.val);
+    assert.ok(typedValuesEqual(got, want));
   });
   return decoded;
 }
@@ -77,5 +78,34 @@ describe('IdMix', () => {
     for (let i = 0; i < 50; i++) seen.add(m.encode(u32(42)));
     console.log(`\n▶ 变体多态: u32(42) 编码 50 次 => ${seen.size} 种不同字符串`);
     assert.ok(seen.size >= 2);
+  });
+
+  it('extreme values round trip', () => {
+    const m = IdMix.new();
+    const cases = [
+      ['uint32_max', [u32(EXTREME.UINT32_MAX)]],
+      ['int32_min', [i32(EXTREME.INT32_MIN)]],
+      ['int64_min', [i64(EXTREME.INT64_MIN)]],
+      ['int64_max', [i64(EXTREME.INT64_MAX)]],
+      ['uint64_max', [u64(EXTREME.UINT64_MAX)]],
+    ];
+    for (const [name, values] of cases) {
+      const decoded = logRoundTrip(m, name, values);
+      values.forEach((want, i) => assert.ok(typedValuesEqual(decoded[i], want)));
+    }
+  });
+
+  it('cross-language vectors decode', () => {
+    const f = loadCrossLanguageVectors();
+    const m = IdMix.new(f.alphabet);
+    for (const c of f.cases) {
+      console.log(`\n▶ cross-language: ${c.name}`);
+      const decoded = m.decode(c.encoded);
+      assert.equal(decoded.length, c.values.length, c.name);
+      c.values.forEach((want, i) => {
+        const expected = materializeOtypeVal(want.otype, want.val);
+        assert.ok(typedValuesEqual(decoded[i], expected), `[${i}] ${c.name}`);
+      });
+    }
   });
 });

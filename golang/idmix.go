@@ -162,7 +162,7 @@ func (m *IdMix) finalizeLayout() error {
 
 // Encode 将多个整数编码为 XID 字符串，并保留各值的原始 Go 类型信息。
 //
-// 支持的类型：uint8/16/32/64、int8/16/32/64、int、uint（uint/uint64 不得超过 int64 上限）。
+// 支持的类型：uint8/16/32/64、int8/16/32/64、int、uint（uint64 全范围，> MaxInt64 时以 int64 位模式存储）。
 // 编码时随机选取 variant_id，因此同一组输入多次调用可能产生不同字符串，但均可正确解码。
 //
 // 示例：

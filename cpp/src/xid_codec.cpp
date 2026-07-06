@@ -62,7 +62,7 @@ void validateRange(int otype, int64_t val) {
             ok = val >= 0 && val <= 0xFFFFFFFFLL;
             break;
         case OTYPE_UINT64:
-            ok = val >= 0;
+            ok = true;
             break;
         case OTYPE_INT8:
             ok = val >= -128 && val <= 127;
@@ -86,96 +86,63 @@ std::vector<uint8_t> uintToLeBytes(uint64_t v, int size) {
     return buf;
 }
 
-int64_t reconstructInt(int otype, int sw, uint64_t raw) {
-    int tbits = targetBits(otype);
-    int storedBits = SW_BYTES[sw] * 8;
-    if (isUnsigned(otype)) {
-        uint64_t mask = tbits == 64 ? ~0ULL : ((1ULL << tbits) - 1);
-        return static_cast<int64_t>(raw & mask);
-    }
-    int signBit = static_cast<int>((raw >> (storedBits - 1)) & 1);
-    if (tbits <= storedBits) {
-        uint64_t mask = (1ULL << tbits) - 1;
-        int64_t val = static_cast<int64_t>(raw & mask);
-        if (signBit == 1 && (val & (1LL << (tbits - 1)))) val -= 1LL << tbits;
-        return val;
-    }
-    int64_t extended;
-    if (signBit == 1) {
-        uint64_t extendMask = (~((1ULL << storedBits) - 1)) & ((1ULL << tbits) - 1);
-        extended = static_cast<int64_t>(raw | extendMask);
-    } else {
-        extended = static_cast<int64_t>(raw);
-    }
-    if (extended >= (1LL << (tbits - 1))) extended -= 1LL << tbits;
-    return extended;
+int64_t valueFromMagnitude(uint64_t mag, bool neg) {
+    if (!neg) return static_cast<int64_t>(mag);
+    if (mag == 1ULL << 63) return INT64_MIN;
+    return -static_cast<int64_t>(mag);
 }
 
-struct SwPayload {
-    int sw;
-    std::vector<uint8_t> payload;
+uint8_t swFromMagnitude(uint64_t mag) {
+    if (mag < 256) return 0;
+    if (mag < 65536) return 1;
+    if (mag < 4294967296ULL) return 2;
+    return 3;
+}
+
+struct MagNeg {
+    uint64_t mag;
+    bool neg;
 };
 
-SwPayload minimalComplementBytes(int otype, int64_t val) {
-    if (val == 0) return {0, {0}};
-    if (isUnsigned(otype)) {
-        if (val < 0) throw std::invalid_argument("negative value for unsigned type");
-        auto uval = static_cast<uint64_t>(val);
-        for (int sw = 0; sw < 4; ++sw) {
-            int size = SW_BYTES[sw];
-            if (size < 8 && uval >= (1ULL << (size * 8))) continue;
-            auto buf = uintToLeBytes(uval, size);
-            if ((buf[size - 1] & 0x80) == 0) return {sw, buf};
-        }
-        throw std::invalid_argument("value too large for unsigned type");
-    }
-    int tbits = targetBits(otype);
-    uint64_t mask = tbits == 64 ? ~0ULL : ((1ULL << tbits) - 1);
-    uint64_t uval = static_cast<uint64_t>(val) & mask;
+MagNeg magnitudeFromTyped(int otype, int64_t val) {
+    if (isUnsigned(otype)) return {static_cast<uint64_t>(val), false};
+    if (val < 0) return {static_cast<uint64_t>(0 - static_cast<uint64_t>(val)), true};
+    return {static_cast<uint64_t>(val), false};
+}
 
-    if (val < 0) {
-        for (int sw = 0; sw < 4; ++sw) {
-            int size = SW_BYTES[sw];
-            int shift = size * 8;
-            if (shift >= tbits) return {sw, uintToLeBytes(uval, size)};
-            uint64_t lower = uval & ((1ULL << shift) - 1);
-            uint64_t upper = uval >> shift;
-            uint64_t upperMask = (1ULL << (tbits - shift)) - 1;
-            if (upper != upperMask) continue;
-            int highByte = static_cast<int>((lower >> (shift - 8)) & 0xFF);
-            if ((highByte & 0x80) == 0) continue;
-            return {sw, uintToLeBytes(lower, size)};
+bool tryEmbeddedHead(int otype, int64_t val, uint8_t* head) {
+    auto mn = magnitudeFromTyped(otype, val);
+    if (mn.mag >= 17) return false;
+    int wb = widthBits(otype);
+    if (mn.mag == 16) {
+        if (mn.neg) {
+            *head = static_cast<uint8_t>((1 << 6) | (wb << 4) | 15);
+            return true;
         }
-    } else {
-        for (int sw = 0; sw < 4; ++sw) {
-            int size = SW_BYTES[sw];
-            if (size < 8 && uval >= (1ULL << (size * 8))) continue;
-            auto buf = uintToLeBytes(uval, size);
-            if ((buf[size - 1] & 0x80) == 0) return {sw, buf};
-        }
+        return false;
     }
-    int swFinal = 3;
-    if (tbits == 8) swFinal = 0;
-    else if (tbits == 16) swFinal = 1;
-    else if (tbits == 32) swFinal = 2;
-    return {swFinal, uintToLeBytes(uval, SW_BYTES[swFinal])};
+    if (mn.neg) {
+        *head = static_cast<uint8_t>((1 << 6) | (wb << 4) | static_cast<int>(mn.mag - 1));
+    } else {
+        *head = static_cast<uint8_t>((wb << 4) | mn.mag);
+    }
+    return true;
 }
 
 std::vector<uint8_t> encodeObject(const TypedValue& tv) {
     validateRange(tv.otype, tv.val);
-    if (isUnsigned(tv.otype) && tv.val >= 0 && tv.val <= 15) {
-        int wb = widthBits(tv.otype);
-        return {static_cast<uint8_t>((wb << 4) | tv.val)};
+    uint8_t embedded;
+    if (tryEmbeddedHead(tv.otype, tv.val, &embedded)) {
+        return {embedded};
     }
-    if (isSigned(tv.otype) && tv.val >= -16 && tv.val <= -1) {
-        int wb = widthBits(tv.otype);
-        int v = static_cast<int>(-tv.val - 1);
-        return {static_cast<uint8_t>((1 << 6) | (wb << 4) | v)};
-    }
-    auto sp = minimalComplementBytes(tv.otype, tv.val);
-    std::vector<uint8_t> out(1 + sp.payload.size());
-    out[0] = static_cast<uint8_t>(0x80 | (sp.sw << 4) | tv.otype);
-    std::copy(sp.payload.begin(), sp.payload.end(), out.begin() + 1);
+    auto mn = magnitudeFromTyped(tv.otype, tv.val);
+    int sw = swFromMagnitude(mn.mag);
+    auto payload = uintToLeBytes(mn.mag, SW_BYTES[sw]);
+    uint8_t head = static_cast<uint8_t>(0x80 | (sw << 4) | tv.otype);
+    if (mn.neg) head |= 1 << 6;
+    std::vector<uint8_t> out(1 + payload.size());
+    out[0] = head;
+    std::copy(payload.begin(), payload.end(), out.begin() + 1);
     return out;
 }
 
@@ -195,16 +162,17 @@ DecodeResult decodeObject(const std::vector<uint8_t>& data, size_t offset) {
         int64_t val = sign == 0 ? v : -v - 1LL;
         return {{otype, val}, 1};
     }
-    if (((head >> 6) & 1) != 0) throw std::invalid_argument("reserved bit set in extended mode");
     int sw = (head >> 4) & 0x03;
     int otype = head & 0x0F;
     if (otype > OTYPE_INT64) throw std::invalid_argument("invalid otype");
     int numBytes = SW_BYTES[sw];
     if (data.size() < offset + 1 + static_cast<size_t>(numBytes))
         throw std::invalid_argument("truncated object payload");
-    uint64_t raw = 0;
-    for (int i = 0; i < numBytes; ++i) raw |= static_cast<uint64_t>(data[offset + 1 + i]) << (8 * i);
-    int64_t val = reconstructInt(otype, sw, raw);
+    uint64_t mag = 0;
+    for (int i = 0; i < numBytes; ++i) mag |= static_cast<uint64_t>(data[offset + 1 + i]) << (8 * i);
+    bool neg = ((head >> 6) & 1) != 0;
+    int64_t val = valueFromMagnitude(mag, neg);
+    validateRange(otype, val);
     return {{otype, val}, 1 + numBytes};
 }
 

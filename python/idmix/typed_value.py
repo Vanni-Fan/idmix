@@ -42,8 +42,8 @@ def u32(v: int) -> TypedValue:
 
 
 def u64(v: int) -> TypedValue:
-    if v > (1 << 63) - 1:
-        raise ValueError(f"uint64 value {v} overflows int64")
+    if v < 0 or v > 0xFFFFFFFFFFFFFFFF:
+        raise ValueError(f"uint64 value {v} out of range")
     return TypedValue(OType.UINT64, v)
 
 

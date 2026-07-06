@@ -183,31 +183,22 @@ func (m *IdMix) decodeBinary(data []byte) ([]typedValue, error) {
 // encodeObject 将单个 typedValue 编码为一个数据对象字节序列。
 //
 // 编码优先级（见 arithmetic.md 第 2.2 节）：
-//  1. 内嵌模式（1 字节）：无符号 0~15，或有符号 -1~-16
-//  2. 扩展模式（1+负载）：其余所有值，使用最小补码表示
+//  1. 内嵌模式（1 字节）：正数表示 P < 17（[-16,16]，+16 除外）
+//  2. 扩展模式（1+负载）：正数表示 P 按数值大小选最小 sw，bit6 存符号
 func encodeObject(tv typedValue) ([]byte, error) {
 	if err := validateRange(tv.otype, tv.val); err != nil {
 		return nil, err
 	}
-	// 内嵌模式：无符号 0~15
-	if isUnsigned(tv.otype) && tv.val >= 0 && tv.val <= 15 {
-		wb := widthBits(tv.otype)
-		head := byte(wb<<4) | byte(tv.val)
+	if head, ok := tryEmbeddedHead(tv.otype, tv.val); ok {
 		return []byte{head}, nil
 	}
-	// 内嵌模式：有符号 -1~-16（bit6=1 表示有符号）
-	if isSigned(tv.otype) && tv.val >= -16 && tv.val <= -1 {
-		wb := widthBits(tv.otype)
-		v := byte(-tv.val - 1) // v 取值 0~15，实际值 = -(v+1)
-		head := byte(1<<6) | byte(wb<<4) | v
-		return []byte{head}, nil
-	}
-	// 扩展模式：bit7=1，后跟最小宽度的补码负载
-	sw, payload, err := minimalComplementBytes(tv.otype, tv.val)
-	if err != nil {
-		return nil, err
-	}
+	mag, neg := magnitudeFromTyped(tv)
+	sw := swFromMagnitude(mag)
+	payload := uintToLEBytes(mag, swBytes[sw])
 	head := byte(0x80) | byte(sw<<4) | tv.otype
+	if neg {
+		head |= 1 << 6
+	}
 	out := make([]byte, 1+len(payload))
 	out[0] = head
 	copy(out[1:], payload)
@@ -237,10 +228,7 @@ func decodeObject(data []byte) (typedValue, int, error) {
 		}
 		return typedValue{otype, val}, 1, nil
 	}
-	// 扩展模式：bit6 保留必须为 0
-	if (head>>6)&1 != 0 {
-		return typedValue{}, 0, errors.New("reserved bit set in extended mode")
-	}
+	// 扩展模式：bit7=1，bit6=sign，bit5-4=sw，bit3-0=otype
 	sw := (head >> 4) & 0x03
 	otype := head & 0x0F
 	if otype > otypeInt64 {
@@ -250,12 +238,13 @@ func decodeObject(data []byte) (typedValue, int, error) {
 	if len(data) < 1+numBytes {
 		return typedValue{}, 0, errors.New("truncated object payload")
 	}
-	raw := uint64(0)
+	mag := uint64(0)
 	for i := 0; i < numBytes; i++ {
-		raw |= uint64(data[1+i]) << (8 * i) // 小端序读取负载
+		mag |= uint64(data[1+i]) << (8 * i)
 	}
-	val, err := reconstructInt(otype, sw, raw)
-	if err != nil {
+	neg := (head>>6)&1 != 0
+	val := valueFromMagnitude(otype, mag, neg)
+	if err := validateRange(otype, val); err != nil {
 		return typedValue{}, 0, err
 	}
 	return typedValue{otype, val}, 1 + numBytes, nil
@@ -281,97 +270,59 @@ func widthBits(otype uint8) uint8 {
 	}
 }
 
-// targetBits 返回 otype 对应的原始类型位宽（8/16/32/64）。
-func targetBits(otype uint8) int {
-	switch otype {
-	case otypeUint8, otypeInt8:
-		return 8
-	case otypeUint16, otypeInt16:
-		return 16
-	case otypeUint32, otypeInt32:
-		return 32
-	default:
-		return 64
+// magnitudeFromTyped 返回正数表示 P 与原值是否为负。
+func magnitudeFromTyped(tv typedValue) (mag uint64, neg bool) {
+	if isUnsigned(tv.otype) {
+		return uint64(tv.val), false
 	}
+	if tv.val < 0 {
+		return uint64(-tv.val), true
+	}
+	return uint64(tv.val), false
 }
 
-// minimalComplementBytes 计算扩展模式的最小补码存储宽度和负载字节。
-//
-// 目标：在能正确还原的前提下，选用尽可能少的字节数（sw=0/1/2/3 对应 1/2/4/8 字节）。
-// 约束：负载最高字节的最高位（bit7）必须为 0，否则需扩展宽度或回退到全宽存储。
-// 详见 arithmetic.md 第 2.2 节"数据负载生成规则"。
-func minimalComplementBytes(otype uint8, val int64) (uint8, []byte, error) {
-	if val == 0 {
-		return 0, []byte{0x00}, nil
+// swFromMagnitude 按 P 的数值大小选取最小 sw（与 otype 位宽无关）。
+func swFromMagnitude(mag uint64) uint8 {
+	if mag < 256 {
+		return 0
 	}
-	if isUnsigned(otype) {
-		if val < 0 {
-			return 0, nil, fmt.Errorf("negative value %d for unsigned type", val)
-		}
-		uval := uint64(val)
-		for sw := uint8(0); sw < 4; sw++ {
-			size := swBytes[sw]
-			if size < 8 && uval >= (uint64(1)<<uint(size*8)) {
-				continue
-			}
-			buf := uintToLEBytes(uval, size)
-			if buf[size-1]&0x80 == 0 {
-				return sw, buf, nil
-			}
-		}
-		return 0, nil, errors.New("value too large for unsigned type")
+	if mag < 65536 {
+		return 1
 	}
+	if mag < 4294967296 {
+		return 2
+	}
+	return 3
+}
 
-	tbits := targetBits(otype)
-	mask := uint64((1 << tbits) - 1)
-	uval := uint64(val) & mask // 转为目标位宽的无符号补码表示
-
-	if val < 0 {
-		// 负数：尝试截断高位全 1 的冗余符号扩展字节
-		for sw := uint8(0); sw < 4; sw++ {
-			size := swBytes[sw]
-			shift := size * 8
-			if shift >= tbits {
-				return sw, uintToLEBytes(uval, size), nil
-			}
-			lower := uval & ((1 << shift) - 1)
-			upper := uval >> shift
-			upperMask := uint64((1 << (tbits - shift)) - 1)
-			if upper != upperMask {
-				continue
-			}
-			highByte := byte(lower>>(shift-8)) & 0xFF
-			if highByte&0x80 == 0 {
-				continue
-			}
-			return sw, uintToLEBytes(lower, size), nil
-		}
-	} else {
-		// 非负有符号数：与无符号类似，要求最高字节 bit7=0
-		for sw := uint8(0); sw < 4; sw++ {
-			size := swBytes[sw]
-			if size < 8 && uval >= (uint64(1)<<uint(size*8)) {
-				continue
-			}
-			buf := uintToLEBytes(uval, size)
-			if buf[size-1]&0x80 == 0 {
-				return sw, buf, nil
-			}
-		}
+// tryEmbeddedHead 在 P < 17 时尝试 1 字节内嵌编码。
+func tryEmbeddedHead(otype uint8, val int64) (byte, bool) {
+	mag, neg := magnitudeFromTyped(typedValue{otype, val})
+	if mag >= 17 {
+		return 0, false
 	}
-
-	// 无法压缩：回退到目标类型的全宽存储
-	sw := uint8(3)
-	switch tbits {
-	case 8:
-		sw = 0
-	case 16:
-		sw = 1
-	case 32:
-		sw = 2
+	wb := widthBits(otype)
+	if mag == 16 {
+		if neg {
+			return byte(1<<6) | byte(wb<<4) | 15, true
+		}
+		return 0, false
 	}
-	size := swBytes[sw]
-	return sw, uintToLEBytes(uval, size), nil
+	if neg {
+		return byte(1<<6) | byte(wb<<4) | byte(mag-1), true
+	}
+	return byte(wb<<4) | byte(mag), true
+}
+
+// valueFromMagnitude 从正数表示 P 与 sign 还原原值。
+func valueFromMagnitude(otype uint8, mag uint64, neg bool) int64 {
+	if !neg {
+		return int64(mag)
+	}
+	if mag == 1<<63 {
+		return math.MinInt64
+	}
+	return -int64(mag)
 }
 
 // uintToLEBytes 将无符号整数按小端序写入指定长度的字节切片。
@@ -381,41 +332,6 @@ func uintToLEBytes(v uint64, size int) []byte {
 		buf[i] = byte(v >> (8 * i))
 	}
 	return buf
-}
-
-// reconstructInt 从扩展模式负载还原有符号/无符号整数值。
-//
-// 根据存储宽度与目标位宽的关系，处理符号扩展：
-//   - 无符号：直接掩码截断
-//   - 有符号且 storedBits >= tbits：按补码解释
-//   - 有符号且 storedBits < tbits：将符号位向高位扩展后转回有符号数
-func reconstructInt(otype uint8, sw uint8, raw uint64) (int64, error) {
-	tbits := targetBits(otype)
-	storedBits := swBytes[sw] * 8
-	if isUnsigned(otype) {
-		mask := uint64((1 << tbits) - 1)
-		return int64(raw & mask), nil
-	}
-	signBit := (raw >> (storedBits - 1)) & 1
-	if tbits <= storedBits {
-		mask := uint64((1 << tbits) - 1)
-		val := raw & mask
-		if signBit == 1 && val&(1<<(tbits-1)) != 0 {
-			val -= 1 << tbits
-		}
-		return int64(val), nil
-	}
-	var extended uint64
-	if signBit == 1 {
-		extendMask := uint64((^((1 << storedBits) - 1)) & ((1 << tbits) - 1))
-		extended = raw | extendMask
-	} else {
-		extended = raw
-	}
-	if extended >= 1<<(tbits-1) {
-		extended -= 1 << tbits
-	}
-	return int64(extended), nil
 }
 
 // validateRange 校验数值是否在 otype 对应类型的合法范围内。
@@ -434,9 +350,7 @@ func validateRange(otype uint8, val int64) error {
 			return fmt.Errorf("value %d out of uint32 range", val)
 		}
 	case otypeUint64:
-		if val < 0 {
-			return fmt.Errorf("value %d out of uint64 range", val)
-		}
+		// uint64 全范围：内部以 int64 位模式存储
 	case otypeInt8:
 		if val < math.MinInt8 || val > math.MaxInt8 {
 			return fmt.Errorf("value %d out of int8 range", val)

@@ -1,0 +1,13 @@
+{
+  "description": "Shared extreme integer constants for idmix cross-language tests",
+  "uint32_max": 4294967295,
+  "int32_min": -2147483648,
+  "int32_max": 2147483647,
+  "uint64_max": "18446744073709551615",
+  "int64_min": -9223372036854775808,
+  "int64_max": 9223372036854775807,
+  "notes": {
+    "uint64_max": "Full uint64 range per XID v1.1 (extended payload is unsigned LE; otype disambiguates signed vs unsigned)",
+    "int64_min": "Classic edge case for two's complement minimal encoding"
+  }
+}

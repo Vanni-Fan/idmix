@@ -2,7 +2,7 @@
 namespace Vanni\Idmix;
 
 /**
- * XID v1.1 二进制层编解码。
+ * XID v1.1 二进制层编解码（整数运算经 IntMath / bcmath）。
  */
 class XidCodec
 {
@@ -16,6 +16,7 @@ class XidCodec
     /** @param TypedValue[] $typed */
     public static function encodeBinary(IdMix $m, array $typed, int $variantId): string
     {
+        IntMath::ensureAvailable();
         $objects = '';
         foreach ($typed as $tv) {
             $objects .= self::encodeObject($tv);
@@ -39,6 +40,7 @@ class XidCodec
     /** @return TypedValue[] */
     public static function decodeBinary(IdMix $m, string $data): array
     {
+        IntMath::ensureAvailable();
         if (strlen($data) < 2) {
             throw new \InvalidArgumentException('invalid data: too short');
         }
@@ -87,18 +89,19 @@ class XidCodec
 
     private static function encodeObject(TypedValue $tv): string
     {
-        self::validateRange($tv->otype, $tv->val);
-        if (self::isUnsigned($tv->otype) && $tv->val >= 0 && $tv->val <= 15) {
-            $wb = self::widthBits($tv->otype);
-            return chr(($wb << 4) | $tv->val);
+        IntMath::validateRange($tv->otype, $tv->val);
+        $embedded = self::tryEmbeddedHead($tv->otype, $tv->val);
+        if ($embedded !== null) {
+            return chr($embedded);
         }
-        if (self::isSigned($tv->otype) && $tv->val >= -16 && $tv->val <= -1) {
-            $wb = self::widthBits($tv->otype);
-            $v = -$tv->val - 1;
-            return chr((1 << 6) | ($wb << 4) | $v);
+        [$mag, $neg] = self::magnitudeFromTyped($tv->otype, $tv->val);
+        $sw = self::swFromMagnitude($mag);
+        $payload = IntMath::uintToLEBytes($mag, self::SW_BYTES[$sw]);
+        $head = 0x80 | ($sw << 4) | $tv->otype;
+        if ($neg) {
+            $head |= 1 << 6;
         }
-        [$sw, $payload] = self::minimalComplementBytes($tv->otype, $tv->val);
-        return chr(0x80 | ($sw << 4) | $tv->otype) . $payload;
+        return chr($head) . $payload;
     }
 
     /** @return array{0: TypedValue, 1: int} */
@@ -113,11 +116,8 @@ class XidCodec
             $wb = ($head >> 4) & 0x03;
             $v = $head & 0x0F;
             $otype = self::EMBEDDED_OTYPE[$sign][$wb];
-            $val = $sign === 0 ? $v : -$v - 1;
-            return [new TypedValue($otype, $val), 1];
-        }
-        if ((($head >> 6) & 1) !== 0) {
-            throw new \InvalidArgumentException('reserved bit set in extended mode');
+            $val = $sign === 0 ? (string) $v : (string) (-$v - 1);
+            return [self::fromOtypeVal($otype, $val), 1];
         }
         $sw = ($head >> 4) & 0x03;
         $otype = $head & 0x0F;
@@ -128,12 +128,27 @@ class XidCodec
         if (strlen($data) < 1 + $numBytes) {
             throw new \InvalidArgumentException('truncated object payload');
         }
-        $raw = 0;
-        for ($i = 0; $i < $numBytes; $i++) {
-            $raw |= ord($data[1 + $i]) << (8 * $i);
-        }
-        $val = self::reconstructInt($otype, $sw, $raw);
-        return [new TypedValue($otype, $val), 1 + $numBytes];
+        $rawBytes = substr($data, 1, $numBytes);
+        $mag = IntMath::bytesToUint($rawBytes);
+        $neg = (($head >> 6) & 1) !== 0;
+        $val = self::valueFromMagnitude($mag, $neg);
+        IntMath::validateRange($otype, $val);
+        return [self::fromOtypeVal($otype, $val), 1 + $numBytes];
+    }
+
+    private static function fromOtypeVal(int $otype, string $val): TypedValue
+    {
+        return match ($otype) {
+            TypedValue::OTYPE_UINT8 => TypedValue::u8($val),
+            TypedValue::OTYPE_UINT16 => TypedValue::u16($val),
+            TypedValue::OTYPE_UINT32 => TypedValue::u32($val),
+            TypedValue::OTYPE_UINT64 => TypedValue::u64($val),
+            TypedValue::OTYPE_INT8 => TypedValue::i8($val),
+            TypedValue::OTYPE_INT16 => TypedValue::i16($val),
+            TypedValue::OTYPE_INT32 => TypedValue::i32($val),
+            TypedValue::OTYPE_INT64 => TypedValue::i64($val),
+            default => throw new \InvalidArgumentException("invalid otype $otype"),
+        };
     }
 
     private static function isUnsigned(int $otype): bool
@@ -156,136 +171,60 @@ class XidCodec
         };
     }
 
-    private static function targetBits(int $otype): int
+    /** @return array{0: string, 1: bool} */
+    private static function magnitudeFromTyped(int $otype, string $val): array
     {
-        return match ($otype) {
-            TypedValue::OTYPE_UINT8, TypedValue::OTYPE_INT8 => 8,
-            TypedValue::OTYPE_UINT16, TypedValue::OTYPE_INT16 => 16,
-            TypedValue::OTYPE_UINT32, TypedValue::OTYPE_INT32 => 32,
-            default => 64,
-        };
-    }
-
-    /** @return array{0: int, 1: string} */
-    private static function minimalComplementBytes(int $otype, int $val): array
-    {
-        if ($val === 0) {
-            return [0, "\x00"];
-        }
         if (self::isUnsigned($otype)) {
-            if ($val < 0) {
-                throw new \InvalidArgumentException("negative value $val for unsigned type");
-            }
-            $uval = $val;
-            for ($sw = 0; $sw < 4; $sw++) {
-                $size = self::SW_BYTES[$sw];
-                if ($size < 8 && $uval >= (1 << ($size * 8))) {
-                    continue;
-                }
-                $buf = self::uintToLEBytes($uval, $size);
-                if ((ord($buf[$size - 1]) & 0x80) === 0) {
-                    return [$sw, $buf];
-                }
-            }
-            throw new \InvalidArgumentException('value too large for unsigned type');
+            return [IntMath::modPositive($val), false];
         }
-
-        $tbits = self::targetBits($otype);
-        $mask = $tbits === 64 ? PHP_INT_MAX : ((1 << $tbits) - 1);
-        $uval = $val & $mask;
-
-        if ($val < 0) {
-            for ($sw = 0; $sw < 4; $sw++) {
-                $size = self::SW_BYTES[$sw];
-                $shift = $size * 8;
-                if ($shift >= $tbits) {
-                    return [$sw, self::uintToLEBytes($uval, $size)];
-                }
-                $lower = $uval & ((1 << $shift) - 1);
-                $upper = $uval >> $shift;
-                $upperMask = (1 << ($tbits - $shift)) - 1;
-                if ($upper !== $upperMask) {
-                    continue;
-                }
-                $highByte = ($lower >> ($shift - 8)) & 0xFF;
-                if (($highByte & 0x80) === 0) {
-                    continue;
-                }
-                return [$sw, self::uintToLEBytes($lower, $size)];
-            }
-        } else {
-            for ($sw = 0; $sw < 4; $sw++) {
-                $size = self::SW_BYTES[$sw];
-                if ($size < 8 && $uval >= (1 << ($size * 8))) {
-                    continue;
-                }
-                $buf = self::uintToLEBytes($uval, $size);
-                if ((ord($buf[$size - 1]) & 0x80) === 0) {
-                    return [$sw, $buf];
-                }
-            }
+        if (IntMath::isNegative($val)) {
+            return [IntMath::sub('0', $val), true];
         }
-
-        $sw = match ($tbits) {
-            8 => 0, 16 => 1, 32 => 2, default => 3,
-        };
-        return [$sw, self::uintToLEBytes($uval, self::SW_BYTES[$sw])];
+        return [$val, false];
     }
 
-    private static function uintToLEBytes(int $v, int $size): string
+    private static function swFromMagnitude(string $mag): int
     {
-        $buf = '';
-        for ($i = 0; $i < $size; $i++) {
-            $buf .= chr(($v >> (8 * $i)) & 0xFF);
+        if (IntMath::compare($mag, '256') < 0) {
+            return 0;
         }
-        return $buf;
+        if (IntMath::compare($mag, '65536') < 0) {
+            return 1;
+        }
+        if (IntMath::compare($mag, '4294967296') < 0) {
+            return 2;
+        }
+        return 3;
     }
 
-    private static function reconstructInt(int $otype, int $sw, int $raw): int
+    private static function tryEmbeddedHead(int $otype, string $val): ?int
     {
-        $tbits = self::targetBits($otype);
-        $storedBits = self::SW_BYTES[$sw] * 8;
-        if (self::isUnsigned($otype)) {
-            $mask = $tbits === 64 ? PHP_INT_MAX : ((1 << $tbits) - 1);
-            return $raw & $mask;
+        [$mag, $neg] = self::magnitudeFromTyped($otype, $val);
+        if (IntMath::compare($mag, '17') >= 0) {
+            return null;
         }
-        $signBit = ($raw >> ($storedBits - 1)) & 1;
-        if ($tbits <= $storedBits) {
-            $mask = $tbits === 64 ? PHP_INT_MAX : ((1 << $tbits) - 1);
-            $val = $raw & $mask;
-            if ($signBit === 1 && ($val & (1 << ($tbits - 1))) !== 0) {
-                $val -= 1 << $tbits;
+        $wb = self::widthBits($otype);
+        if (IntMath::compare($mag, '16') === 0) {
+            if ($neg) {
+                return (1 << 6) | ($wb << 4) | 15;
             }
-            return $val;
+            return null;
         }
-        if ($signBit === 1) {
-            $extendMask = (~((1 << $storedBits) - 1)) & ((1 << $tbits) - 1);
-            $extended = $raw | $extendMask;
-        } else {
-            $extended = $raw;
+        if ($neg) {
+            return (1 << 6) | ($wb << 4) | ((int) IntMath::sub($mag, '1'));
         }
-        if ($extended >= (1 << ($tbits - 1))) {
-            $extended -= 1 << $tbits;
-        }
-        return $extended;
+        return ($wb << 4) | (int) $mag;
     }
 
-    private static function validateRange(int $otype, int $val): void
+    private static function valueFromMagnitude(string $mag, bool $neg): string
     {
-        $ok = match ($otype) {
-            TypedValue::OTYPE_UINT8 => $val >= 0 && $val <= 0xFF,
-            TypedValue::OTYPE_UINT16 => $val >= 0 && $val <= 0xFFFF,
-            TypedValue::OTYPE_UINT32 => $val >= 0 && $val <= 0xFFFFFFFF,
-            TypedValue::OTYPE_UINT64 => $val >= 0,
-            TypedValue::OTYPE_INT8 => $val >= -128 && $val <= 127,
-            TypedValue::OTYPE_INT16 => $val >= -32768 && $val <= 32767,
-            TypedValue::OTYPE_INT32 => $val >= -2147483648 && $val <= 2147483647,
-            TypedValue::OTYPE_INT64 => true,
-            default => false,
-        };
-        if (!$ok) {
-            throw new \InvalidArgumentException("value $val out of range for otype $otype");
+        if (!$neg) {
+            return $mag;
         }
+        if (IntMath::compare($mag, IntMath::pow2(63)) === 0) {
+            return IntMath::sub('0', IntMath::pow2(63));
+        }
+        return IntMath::sub('0', $mag);
     }
 
     private static function xorBytes(string $data, int $mask): string

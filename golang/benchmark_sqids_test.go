@@ -95,6 +95,135 @@ func defaultCompareCases() []compareCase {
 				return out
 			},
 		},
+		{
+			name:    "极值 uint32_max",
+			numbers: []uint64{uint64(extremeUint32Max)},
+			idmixValues: func(ns []uint64) []any {
+				return []any{extremeUint32Max}
+			},
+		},
+		{
+			name:    "极值 int64_max",
+			numbers: []uint64{uint64(extremeInt64Max)},
+			idmixValues: func(ns []uint64) []any {
+				return []any{extremeInt64Max}
+			},
+		},
+		{
+			name:    "极值 uint64_max",
+			numbers: []uint64{extremeUint64Max},
+			idmixValues: func(ns []uint64) []any {
+				return []any{extremeUint64Max}
+			},
+		},
+		{
+			name: "极值三元组 [u32max,i64max,u64max]",
+			numbers: []uint64{
+				uint64(extremeUint32Max),
+				uint64(extremeInt64Max),
+				extremeUint64Max,
+			},
+			idmixValues: func(ns []uint64) []any {
+				return []any{extremeUint32Max, extremeInt64Max, extremeUint64Max}
+			},
+		},
+	}
+}
+
+// sqidsPerfCases 返回用于吞吐对比的场景（含极值；sqids 仅支持非负整数）。
+func sqidsPerfCases(m *IdMix) []struct {
+	name    string
+	numbers []uint64
+	encode  func() (string, error)
+	decode  func(string) error
+} {
+	return []struct {
+		name    string
+		numbers []uint64
+		encode  func() (string, error)
+		decode  func(string) error
+	}{
+		{
+			name:    "Encode [1,2,3]",
+			numbers: []uint64{1, 2, 3},
+			encode: func() (string, error) {
+				return m.Encode(uint32(1), uint32(2), uint32(3))
+			},
+			decode: func(s string) error {
+				_, err := m.Decode(s)
+				return err
+			},
+		},
+		{
+			name:    "Encode [1001,1690000000,3]",
+			numbers: []uint64{1001, 1_690_000_000, 3},
+			encode: func() (string, error) {
+				return m.Encode(uint32(1001), uint64(1_690_000_000), uint8(3))
+			},
+			decode: func(s string) error {
+				_, err := m.Decode(s)
+				return err
+			},
+		},
+		{
+			name:    fmt.Sprintf("Encode 单值 uint32 [%d]", testUint32LargeSingle),
+			numbers: []uint64{uint64(testUint32LargeSingle)},
+			encode: func() (string, error) {
+				return m.Encode(testUint32LargeSingle)
+			},
+			decode: func(s string) error {
+				_, err := m.Decode(s)
+				return err
+			},
+		},
+		{
+			name:    "Encode 极值 uint32_max",
+			numbers: []uint64{uint64(extremeUint32Max)},
+			encode: func() (string, error) {
+				return m.Encode(extremeUint32Max)
+			},
+			decode: func(s string) error {
+				_, err := m.Decode(s)
+				return err
+			},
+		},
+		{
+			name:    "Encode 极值 int64_max",
+			numbers: []uint64{uint64(extremeInt64Max)},
+			encode: func() (string, error) {
+				return m.Encode(extremeInt64Max)
+			},
+			decode: func(s string) error {
+				_, err := m.Decode(s)
+				return err
+			},
+		},
+		{
+			name:    "Encode 极值 uint64_max",
+			numbers: []uint64{extremeUint64Max},
+			encode: func() (string, error) {
+				return m.Encode(extremeUint64Max)
+			},
+			decode: func(s string) error {
+				_, err := m.Decode(s)
+				return err
+			},
+		},
+		{
+			name: "Encode 极值三元组 [u32max,i64max,u64max]",
+			numbers: []uint64{
+				uint64(extremeUint32Max),
+				uint64(extremeInt64Max),
+				extremeUint64Max,
+			},
+			encode: func() (string, error) {
+				return m.Encode(extremeUint32Max, extremeInt64Max, extremeUint64Max)
+			},
+			decode: func(s string) error {
+				_, err := m.Decode(s)
+				return err
+			},
+		},
 	}
 }
 
@@ -246,57 +375,7 @@ func TestCompareSqidsPerformance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cases := []struct {
-		name    string
-		numbers []uint64
-		encode  func() (string, error)
-		decode  func(string) error
-	}{
-		{
-			name:    "Encode [1,2,3]",
-			numbers: []uint64{1, 2, 3},
-			encode: func() (string, error) {
-				return idmixM.Encode(uint32(1), uint32(2), uint32(3))
-			},
-			decode: func(s string) error {
-				_, err := idmixM.Decode(s)
-				return err
-			},
-		},
-		{
-			name:    "Encode [1001,1690000000,3]",
-			numbers: []uint64{1001, 1_690_000_000, 3},
-			encode: func() (string, error) {
-				return idmixM.Encode(uint32(1001), uint64(1_690_000_000), uint8(3))
-			},
-			decode: func(s string) error {
-				_, err := idmixM.Decode(s)
-				return err
-			},
-		},
-		{
-			name:    "Encode 单值 [123456789012345]",
-			numbers: []uint64{123_456_789_012_345},
-			encode: func() (string, error) {
-				return idmixM.Encode(uint64(123_456_789_012_345))
-			},
-			decode: func(s string) error {
-				_, err := idmixM.Decode(s)
-				return err
-			},
-		},
-		{
-			name:    fmt.Sprintf("Encode 单值 uint32 [%d]", testUint32LargeSingle),
-			numbers: []uint64{uint64(testUint32LargeSingle)},
-			encode: func() (string, error) {
-				return idmixM.Encode(testUint32LargeSingle)
-			},
-			decode: func(s string) error {
-				_, err := idmixM.Decode(s)
-				return err
-			},
-		},
-	}
+	cases := sqidsPerfCases(idmixM)
 
 	t.Log("══════════════════════════════════════════════════════════════")
 	t.Logf("  性能对比 (各 %d 次, 单线程)", rounds)
@@ -327,9 +406,9 @@ func TestCompareSqidsPerformance(t *testing.T) {
 
 		t.Logf("▶ %s", c.name)
 		t.Logf("  编码  sqids: %8.0f ops/s  (%6.0f ns/op)", sqEnc.opsPerSec, sqEnc.nsPerOp)
-		t.Logf("  编码  idmix: %8.0f ops/s  (%6.0f ns/op)  [idmix/sqids = %.2fx]", idEnc.opsPerSec, idEnc.nsPerOp, idEnc.opsPerSec/sqEnc.opsPerSec)
+		t.Logf("  编码  idmix: %8.0f ops/s  (%6.0f ns/op)  [idmix/sqids = %.2fx]", idEnc.opsPerSec, idEnc.nsPerOp, ratio(idEnc.opsPerSec, sqEnc.opsPerSec))
 		t.Logf("  解码  sqids: %8.0f ops/s  (%6.0f ns/op)", sqDec.opsPerSec, sqDec.nsPerOp)
-		t.Logf("  解码  idmix: %8.0f ops/s  (%6.0f ns/op)  [idmix/sqids = %.2fx]", idDec.opsPerSec, idDec.nsPerOp, idDec.opsPerSec/sqDec.opsPerSec)
+		t.Logf("  解码  idmix: %8.0f ops/s  (%6.0f ns/op)  [idmix/sqids = %.2fx]", idDec.opsPerSec, idDec.nsPerOp, ratio(idDec.opsPerSec, sqDec.opsPerSec))
 		t.Logf("  字符串长度  sqids=%d  idmix=%d", len(sid), len(iid))
 		t.Log("")
 	}

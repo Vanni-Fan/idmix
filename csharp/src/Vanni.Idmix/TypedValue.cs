@@ -24,11 +24,9 @@ public sealed class TypedValue
     public static TypedValue U8(int v) => new(OTypeUint8, v);
     public static TypedValue U16(int v) => new(OTypeUint16, v);
     public static TypedValue U32(long v) => new(OTypeUint32, v);
-    public static TypedValue U64(long v)
-    {
-        if (v < 0) throw new ArgumentOutOfRangeException(nameof(v), "uint64 overflows");
-        return new TypedValue(OTypeUint64, v);
-    }
+    public static TypedValue U64(long v) => new(OTypeUint64, v);
+    public static TypedValue U64(ulong v) => new(OTypeUint64, unchecked((long)v));
+    public static TypedValue U64(string v) => new(OTypeUint64, unchecked((long)ulong.Parse(v)));
     public static TypedValue I8(int v) => new(OTypeInt8, v);
     public static TypedValue I16(int v) => new(OTypeInt16, v);
     public static TypedValue I32(int v) => new(OTypeInt32, v);

@@ -2,7 +2,7 @@
 namespace Vanni\Idmix;
 
 /**
- * 带类型整数的包装，用于保留编码时的原始类型信息。
+ * 带类型整数的包装；数值统一为十进制字符串（经 bcmath 运算，支持完整 uint64）。
  */
 class TypedValue
 {
@@ -17,15 +17,62 @@ class TypedValue
 
     public function __construct(
         public readonly int $otype,
-        public readonly int $val,
+        public readonly string $val,
     ) {}
 
-    public static function u8(int $v): self { return new self(self::OTYPE_UINT8, $v); }
-    public static function u16(int $v): self { return new self(self::OTYPE_UINT16, $v); }
-    public static function u32(int $v): self { return new self(self::OTYPE_UINT32, $v); }
-    public static function u64(int $v): self { return new self(self::OTYPE_UINT64, $v); }
-    public static function i8(int $v): self { return new self(self::OTYPE_INT8, $v); }
-    public static function i16(int $v): self { return new self(self::OTYPE_INT16, $v); }
-    public static function i32(int $v): self { return new self(self::OTYPE_INT32, $v); }
-    public static function i64(int $v): self { return new self(self::OTYPE_INT64, $v); }
+    public static function u8(int|string $v): self
+    {
+        $s = IntMath::normalize($v);
+        IntMath::validateRange(self::OTYPE_UINT8, $s);
+        return new self(self::OTYPE_UINT8, $s);
+    }
+
+    public static function u16(int|string $v): self
+    {
+        $s = IntMath::normalize($v);
+        IntMath::validateRange(self::OTYPE_UINT16, $s);
+        return new self(self::OTYPE_UINT16, $s);
+    }
+
+    public static function u32(int|string $v): self
+    {
+        $s = IntMath::normalize($v);
+        IntMath::validateRange(self::OTYPE_UINT32, $s);
+        return new self(self::OTYPE_UINT32, $s);
+    }
+
+    public static function u64(int|string $v): self
+    {
+        $s = IntMath::normalize($v);
+        IntMath::validateRange(self::OTYPE_UINT64, $s);
+        return new self(self::OTYPE_UINT64, $s);
+    }
+
+    public static function i8(int|string $v): self
+    {
+        $s = IntMath::normalize($v);
+        IntMath::validateRange(self::OTYPE_INT8, $s);
+        return new self(self::OTYPE_INT8, $s);
+    }
+
+    public static function i16(int|string $v): self
+    {
+        $s = IntMath::normalize($v);
+        IntMath::validateRange(self::OTYPE_INT16, $s);
+        return new self(self::OTYPE_INT16, $s);
+    }
+
+    public static function i32(int|string $v): self
+    {
+        $s = IntMath::normalize($v);
+        IntMath::validateRange(self::OTYPE_INT32, $s);
+        return new self(self::OTYPE_INT32, $s);
+    }
+
+    public static function i64(int|string $v): self
+    {
+        $s = IntMath::normalize($v);
+        IntMath::validateRange(self::OTYPE_INT64, $s);
+        return new self(self::OTYPE_INT64, $s);
+    }
 }

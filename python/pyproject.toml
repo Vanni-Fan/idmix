@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vanni-idmix"
-version = "0.2.0"
+version = "0.3.0"
 description = "XID v1.1: encode typed integer sequences to short strings"
 readme = "README.md"
 license = "Apache-2.0"

@@ -4,7 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>Vanni.Idmix</RootNamespace>
     <AssemblyName>Vanni.Idmix.Vb</AssemblyName>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Authors>Vanni</Authors>
     <Description>XID v1.1: encode typed integer sequences to short strings (VB.NET)</Description>
     <PackageId>Vanni.Idmix.Vb</PackageId>

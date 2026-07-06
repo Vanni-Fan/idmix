@@ -1,4 +1,5 @@
 using Vanni.Idmix;
+using Xunit;
 
 namespace Vanni.Idmix.Tests;
 
@@ -78,5 +79,29 @@ public class IdMixTests
         var seen = new HashSet<string>();
         for (var i = 0; i < 50; i++) seen.Add(m.Encode(TypedValue.U32(42)));
         Assert.True(seen.Count >= 2);
+    }
+
+    [Fact]
+    public void ExtremeValuesRoundTrip()
+    {
+        var m = IdMix.NewDefault();
+        Assert.Equal(4294967295L, LogRoundTrip(m, "uint32_max", TypedValue.U32(4294967295L))[0].Val);
+        Assert.Equal(-2147483648L, LogRoundTrip(m, "int32_min", TypedValue.I32(-2147483648))[0].Val);
+        Assert.Equal(long.MinValue, LogRoundTrip(m, "int64_min", TypedValue.I64(long.MinValue))[0].Val);
+        Assert.Equal(long.MaxValue, LogRoundTrip(m, "int64_max", TypedValue.I64(long.MaxValue))[0].Val);
+        Assert.Equal(unchecked((long)ulong.MaxValue), LogRoundTrip(m, "uint64_max", TypedValue.U64(ulong.MaxValue))[0].Val);
+    }
+
+    [Fact]
+    public void CrossLanguageVectors()
+    {
+        var m = new IdMix(CrossLanguageFixtures.Alphabet);
+        foreach (var c in CrossLanguageFixtures.Cases)
+        {
+            var decoded = m.Decode(c.Encoded);
+            Assert.Equal(c.Values.Length, decoded.Count);
+            for (var i = 0; i < c.Values.Length; i++)
+                Assert.Equal(c.Values[i], decoded[i]);
+        }
     }
 }

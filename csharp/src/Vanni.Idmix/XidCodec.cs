@@ -74,22 +74,16 @@ public static class XidCodec
     private static byte[] EncodeObject(TypedValue tv)
     {
         ValidateRange(tv.OType, tv.Val);
-        if (IsUnsigned(tv.OType) && tv.Val >= 0 && tv.Val <= 15)
-        {
-            var wb = WidthBits(tv.OType);
-            return new byte[] { (byte)(((uint)wb << 4) | ((uint)tv.Val & 0x0Fu)) };
-        }
-        if (IsSigned(tv.OType) && tv.Val >= -16 && tv.Val <= -1)
-        {
-            var wb = WidthBits(tv.OType);
-            var v = (int)(-tv.Val - 1);
-            return new byte[] { (byte)((1 << 6) | (wb << 4) | v) };
-        }
-        var swPayload = MinimalComplementBytes(tv.OType, tv.Val);
-        var sw = swPayload[0];
-        var outBuf = new byte[1 + swPayload.Length - 1];
-        outBuf[0] = (byte)(0x80 | (sw << 4) | tv.OType);
-        Buffer.BlockCopy(swPayload, 1, outBuf, 1, swPayload.Length - 1);
+        var embedded = TryEmbeddedHead(tv.OType, tv.Val);
+        if (embedded.HasValue) return new byte[] { embedded.Value };
+        var (mag, neg) = MagnitudeFromTyped(tv.OType, tv.Val);
+        var sw = SwFromMagnitude(mag);
+        var payload = UintToLeBytes(mag, SwBytes[sw]);
+        var head = 0x80 | (sw << 4) | tv.OType;
+        if (neg) head |= 1 << 6;
+        var outBuf = new byte[1 + payload.Length];
+        outBuf[0] = (byte)head;
+        Buffer.BlockCopy(payload, 0, outBuf, 1, payload.Length);
         return outBuf;
     }
 
@@ -118,16 +112,17 @@ public static class XidCodec
             var val = sign == 0 ? v : -v - 1L;
             return new DecodeResult(new TypedValue(otype, val), 1);
         }
-        if (((head >> 6) & 1) != 0) throw new ArgumentException("reserved bit set in extended mode");
         var sw = (head >> 4) & 0x03;
         var otype2 = head & 0x0F;
         if (otype2 > TypedValue.OTypeInt64) throw new ArgumentException($"invalid otype {otype2}");
         var numBytes = SwBytes[sw];
         if (data.Length < offset + 1 + numBytes) throw new ArgumentException("truncated object payload");
-        long raw = 0;
+        long mag = 0;
         for (var i = 0; i < numBytes; i++)
-            raw |= (long)(data[offset + 1 + i] & 0xFF) << (8 * i);
-        var val2 = ReconstructInt(otype2, sw, raw);
+            mag |= (long)(data[offset + 1 + i] & 0xFF) << (8 * i);
+        var neg = ((head >> 6) & 1) != 0;
+        var val2 = ValueFromMagnitude(mag, neg);
+        ValidateRange(otype2, val2);
         return new DecodeResult(new TypedValue(otype2, val2), 1 + numBytes);
     }
 
@@ -142,123 +137,47 @@ public static class XidCodec
         _ => 3,
     };
 
-    private static int TargetBits(int otype) => otype switch
+    private static (long Mag, bool Neg) MagnitudeFromTyped(int otype, long val)
     {
-        TypedValue.OTypeUint8 or TypedValue.OTypeInt8 => 8,
-        TypedValue.OTypeUint16 or TypedValue.OTypeInt16 => 16,
-        TypedValue.OTypeUint32 or TypedValue.OTypeInt32 => 32,
-        _ => 64,
-    };
+        if (IsUnsigned(otype)) return (val, false);
+        if (val < 0) return (-val, true);
+        return (val, false);
+    }
 
-    private static int[] MinimalComplementBytes(int otype, long val)
+    private static int SwFromMagnitude(long mag)
     {
-        if (val == 0) return [0, 0];
-        if (IsUnsigned(otype))
-        {
-            if (val < 0) throw new ArgumentException("negative value for unsigned type");
-            for (var sw = 0; sw < 4; sw++)
-            {
-                var size = SwBytes[sw];
-                if (size < 8 && val >= (1L << (size * 8))) continue;
-                var buf = UintToLeBytes(val, size);
-                if ((buf[size - 1] & 0x80) == 0)
-                {
-                    var outArr = new int[1 + size];
-                    outArr[0] = sw;
-                    Buffer.BlockCopy(buf, 0, outArr, 1, size);
-                    return outArr;
-                }
-            }
-            throw new ArgumentException("value too large for unsigned type");
-        }
-        var tbits = TargetBits(otype);
-        var mask = tbits == 64 ? -1L : (1L << tbits) - 1;
-        var uval = val & mask;
+        if (unchecked((ulong)mag) < 256) return 0;
+        if (unchecked((ulong)mag) < 65536) return 1;
+        if (unchecked((ulong)mag) < 4294967296L) return 2;
+        return 3;
+    }
 
-        if (val < 0)
+    private static byte? TryEmbeddedHead(int otype, long val)
+    {
+        var (mag, neg) = MagnitudeFromTyped(otype, val);
+        if (unchecked((ulong)mag) >= 17) return null;
+        var wb = WidthBits(otype);
+        if (unchecked((ulong)mag) == 16)
         {
-            for (var sw = 0; sw < 4; sw++)
-            {
-                var size = SwBytes[sw];
-                var shift = size * 8;
-                if (shift >= tbits)
-                {
-                    var buf = UintToLeBytes(uval, size);
-                    var outArr = new int[1 + size];
-                    outArr[0] = sw;
-                    Buffer.BlockCopy(buf, 0, outArr, 1, size);
-                    return outArr;
-                }
-                var lower = uval & ((1L << shift) - 1);
-                var upper = uval >> shift;
-                var upperMask = (1L << (tbits - shift)) - 1;
-                if (upper != upperMask) continue;
-                var highByte = (int)((lower >> (shift - 8)) & 0xFF);
-                if ((highByte & 0x80) == 0) continue;
-                var buf2 = UintToLeBytes(lower, size);
-                var outArr2 = new int[1 + size];
-                outArr2[0] = sw;
-                Buffer.BlockCopy(buf2, 0, outArr2, 1, size);
-                return outArr2;
-            }
+            if (neg) return (byte)((1 << 6) | (wb << 4) | 15);
+            return null;
         }
-        else
-        {
-            for (var sw = 0; sw < 4; sw++)
-            {
-                var size = SwBytes[sw];
-                if (size < 8 && uval >= (1L << (size * 8))) continue;
-                var buf = UintToLeBytes(uval, size);
-                if ((buf[size - 1] & 0x80) == 0)
-                {
-                    var outArr = new int[1 + size];
-                    outArr[0] = sw;
-                    Buffer.BlockCopy(buf, 0, outArr, 1, size);
-                    return outArr;
-                }
-            }
-        }
-        var swFinal = tbits switch { 8 => 0, 16 => 1, 32 => 2, _ => 3 };
-        var bufFinal = UintToLeBytes(uval, SwBytes[swFinal]);
-        var outFinal = new int[1 + bufFinal.Length];
-        outFinal[0] = swFinal;
-        Buffer.BlockCopy(bufFinal, 0, outFinal, 1, bufFinal.Length);
-        return outFinal;
+        if (neg) return (byte)((1 << 6) | (wb << 4) | (int)(mag - 1));
+        return (byte)((wb << 4) | (int)mag);
+    }
+
+    private static long ValueFromMagnitude(long mag, bool neg)
+    {
+        if (!neg) return mag;
+        if (mag == 1L << 63) return long.MinValue;
+        return -mag;
     }
 
     private static byte[] UintToLeBytes(long v, int size)
     {
         var buf = new byte[size];
-        for (var i = 0; i < size; i++) buf[i] = (byte)((v >> (8 * i)) & 0xFF);
+        for (var i = 0; i < size; i++) buf[i] = (byte)((unchecked((ulong)v) >> (8 * i)) & 0xFF);
         return buf;
-    }
-
-    private static long ReconstructInt(int otype, int sw, long raw)
-    {
-        var tbits = TargetBits(otype);
-        var storedBits = SwBytes[sw] * 8;
-        if (IsUnsigned(otype))
-        {
-            var mask = tbits == 64 ? -1L : (1L << tbits) - 1;
-            return raw & mask;
-        }
-        var signBit = (int)((raw >> (storedBits - 1)) & 1);
-        if (tbits <= storedBits)
-        {
-            var mask = (1L << tbits) - 1;
-            var val = raw & mask;
-            if (signBit == 1 && (val & (1L << (tbits - 1))) != 0) val -= 1L << tbits;
-            return val;
-        }
-        long extended;
-        if (signBit == 1)
-        {
-            var extendMask = (~((1L << storedBits) - 1)) & ((1L << tbits) - 1);
-            extended = raw | extendMask;
-        }
-        else extended = raw;
-        if (extended >= (1L << (tbits - 1))) extended -= 1L << tbits;
-        return extended;
     }
 
     private static void ValidateRange(int otype, long val)
@@ -268,7 +187,7 @@ public static class XidCodec
             TypedValue.OTypeUint8 => val >= 0 && val <= 0xFF,
             TypedValue.OTypeUint16 => val >= 0 && val <= 0xFFFF,
             TypedValue.OTypeUint32 => val >= 0 && val <= 0xFFFFFFFFL,
-            TypedValue.OTypeUint64 => val >= 0,
+            TypedValue.OTypeUint64 => true,
             TypedValue.OTypeInt8 => val >= -128 && val <= 127,
             TypedValue.OTypeInt16 => val >= -32768 && val <= 32767,
             TypedValue.OTypeInt32 => val >= int.MinValue && val <= int.MaxValue,

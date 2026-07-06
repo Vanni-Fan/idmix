@@ -80,15 +80,15 @@ def decode_binary(m: IdMix, data: bytes) -> list[TypedValue]:
 
 def encode_object(tv: TypedValue) -> bytes:
     validate_range(tv.otype, tv.val)
-    if _is_unsigned(tv.otype) and 0 <= tv.val <= 15:
-        wb = _width_bits(tv.otype)
-        return bytes([(wb << 4) | tv.val])
-    if _is_signed(tv.otype) and -16 <= tv.val <= -1:
-        wb = _width_bits(tv.otype)
-        v = -tv.val - 1
-        return bytes([(1 << 6) | (wb << 4) | v])
-    sw, payload = _minimal_complement_bytes(tv.otype, tv.val)
-    return bytes([0x80 | (sw << 4) | tv.otype]) + payload
+    if (head := _try_embedded_head(tv.otype, tv.val)) is not None:
+        return bytes([head])
+    mag, neg = _magnitude_from_typed(tv.otype, tv.val)
+    sw = _sw_from_magnitude(mag)
+    payload = _uint_to_le_bytes(mag, SW_BYTES[sw])
+    head = 0x80 | (sw << 4) | tv.otype
+    if neg:
+        head |= 1 << 6
+    return bytes([head]) + payload
 
 
 def decode_object(data: bytes) -> tuple[TypedValue, int]:
@@ -102,8 +102,6 @@ def decode_object(data: bytes) -> tuple[TypedValue, int]:
         otype = EMBEDDED_OTYPE[sign][wb]
         val = v if sign == 0 else -v - 1
         return TypedValue(otype, val), 1
-    if (head >> 6) & 1:
-        raise ValueError("reserved bit set in extended mode")
     sw = (head >> 4) & 0x03
     otype = head & 0x0F
     if otype > OType.INT64:
@@ -111,10 +109,12 @@ def decode_object(data: bytes) -> tuple[TypedValue, int]:
     num_bytes = SW_BYTES[sw]
     if len(data) < 1 + num_bytes:
         raise ValueError("truncated object payload")
-    raw = 0
+    mag = 0
     for i in range(num_bytes):
-        raw |= data[1 + i] << (8 * i)
-    val = _reconstruct_int(otype, sw, raw)
+        mag |= data[1 + i] << (8 * i)
+    neg = ((head >> 6) & 1) != 0
+    val = _value_from_magnitude(mag, neg)
+    validate_range(otype, val)
     return TypedValue(otype, val), 1 + num_bytes
 
 
@@ -131,84 +131,48 @@ def _width_bits(otype: int) -> int:
             OType.UINT32: 2, OType.INT32: 2}.get(otype, 3)
 
 
-def _target_bits(otype: int) -> int:
-    return {OType.UINT8: 8, OType.INT8: 8, OType.UINT16: 16, OType.INT16: 16,
-            OType.UINT32: 32, OType.INT32: 32}.get(otype, 64)
-
-
-def _minimal_complement_bytes(otype: int, val: int) -> tuple[int, bytes]:
-    if val == 0:
-        return 0, b"\x00"
+def _magnitude_from_typed(otype: int, val: int) -> tuple[int, bool]:
     if _is_unsigned(otype):
-        if val < 0:
-            raise ValueError(f"negative value {val} for unsigned type")
-        uval = val
-        for sw in range(4):
-            size = SW_BYTES[sw]
-            if size < 8 and uval >= (1 << (size * 8)):
-                continue
-            buf = _uint_to_le_bytes(uval, size)
-            if buf[-1] & 0x80 == 0:
-                return sw, buf
-        raise ValueError("value too large for unsigned type")
-
-    tbits = _target_bits(otype)
-    mask = (1 << tbits) - 1 if tbits < 64 else (1 << 64) - 1
-    uval = val & mask
-
+        return val & 0xFFFFFFFFFFFFFFFF, False
     if val < 0:
-        for sw in range(4):
-            size = SW_BYTES[sw]
-            shift = size * 8
-            if shift >= tbits:
-                return sw, _uint_to_le_bytes(uval, size)
-            lower = uval & ((1 << shift) - 1)
-            upper = uval >> shift
-            upper_mask = (1 << (tbits - shift)) - 1
-            if upper != upper_mask:
-                continue
-            high_byte = (lower >> (shift - 8)) & 0xFF
-            if high_byte & 0x80 == 0:
-                continue
-            return sw, _uint_to_le_bytes(lower, size)
-    else:
-        for sw in range(4):
-            size = SW_BYTES[sw]
-            if size < 8 and uval >= (1 << (size * 8)):
-                continue
-            buf = _uint_to_le_bytes(uval, size)
-            if buf[-1] & 0x80 == 0:
-                return sw, buf
+        return -val, True
+    return val, False
 
-    sw = {8: 0, 16: 1, 32: 2}.get(tbits, 3)
-    return sw, _uint_to_le_bytes(uval, SW_BYTES[sw])
+
+def _sw_from_magnitude(mag: int) -> int:
+    if mag < 256:
+        return 0
+    if mag < 65536:
+        return 1
+    if mag < 4294967296:
+        return 2
+    return 3
+
+
+def _try_embedded_head(otype: int, val: int) -> int | None:
+    mag, neg = _magnitude_from_typed(otype, val)
+    if mag >= 17:
+        return None
+    wb = _width_bits(otype)
+    if mag == 16:
+        if neg:
+            return (1 << 6) | (wb << 4) | 15
+        return None
+    if neg:
+        return (1 << 6) | (wb << 4) | (mag - 1)
+    return (wb << 4) | mag
+
+
+def _value_from_magnitude(mag: int, neg: bool) -> int:
+    if not neg:
+        return mag
+    if mag == 1 << 63:
+        return -(1 << 63)
+    return -mag
 
 
 def _uint_to_le_bytes(v: int, size: int) -> bytes:
     return bytes((v >> (8 * i)) & 0xFF for i in range(size))
-
-
-def _reconstruct_int(otype: int, sw: int, raw: int) -> int:
-    tbits = _target_bits(otype)
-    stored_bits = SW_BYTES[sw] * 8
-    if _is_unsigned(otype):
-        mask = (1 << tbits) - 1 if tbits < 64 else (1 << 64) - 1
-        return raw & mask
-    sign_bit = (raw >> (stored_bits - 1)) & 1
-    if tbits <= stored_bits:
-        mask = (1 << tbits) - 1 if tbits < 64 else (1 << 64) - 1
-        val = raw & mask
-        if sign_bit == 1 and val & (1 << (tbits - 1)):
-            val -= 1 << tbits
-        return val
-    if sign_bit == 1:
-        extend_mask = ((~((1 << stored_bits) - 1)) & ((1 << tbits) - 1)) if tbits < 64 else 0
-        extended = raw | extend_mask
-    else:
-        extended = raw
-    if extended >= (1 << (tbits - 1)):
-        extended -= 1 << tbits
-    return extended
 
 
 def _validate_range(otype: int, val: int) -> None:
@@ -216,7 +180,7 @@ def _validate_range(otype: int, val: int) -> None:
         OType.UINT8: (0, 0xFF),
         OType.UINT16: (0, 0xFFFF),
         OType.UINT32: (0, 0xFFFFFFFF),
-        OType.UINT64: (0, None),
+        OType.UINT64: (None, None),
         OType.INT8: (-128, 127),
         OType.INT16: (-32768, 32767),
         OType.INT32: (-2147483648, 2147483647),

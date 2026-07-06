@@ -331,7 +331,7 @@ static int validate_range(int otype, int64_t val) {
         case IDMIX_OTYPE_UINT32:
             return val >= 0 && val <= 0xFFFFFFFFLL;
         case IDMIX_OTYPE_UINT64:
-            return val >= 0;
+            return 1;
         case IDMIX_OTYPE_INT8:
             return val >= -128 && val <= 127;
         case IDMIX_OTYPE_INT16:
@@ -350,117 +350,66 @@ static int uint_to_le_bytes(uint64_t v, int size, uint8_t* out) {
     return size;
 }
 
-static int64_t reconstruct_int(int otype, int sw, uint64_t raw) {
-    int tbits = target_bits(otype);
-    int stored_bits = SW_BYTES[sw] * 8;
+static uint64_t magnitude_mag(int otype, int64_t val, int* neg) {
     if (is_unsigned(otype)) {
-        uint64_t mask = tbits == 64 ? ~0ULL : ((1ULL << tbits) - 1);
-        return (int64_t)(raw & mask);
+        *neg = 0;
+        return (uint64_t)val;
     }
-    int sign_bit = (int)((raw >> (stored_bits - 1)) & 1);
-    if (tbits <= stored_bits) {
-        uint64_t mask = (1ULL << tbits) - 1;
-        int64_t val = (int64_t)(raw & mask);
-        if (sign_bit == 1 && (val & (1LL << (tbits - 1)))) val -= 1LL << tbits;
-        return val;
+    if (val < 0) {
+        *neg = 1;
+        return (uint64_t)(-(uint64_t)val);
     }
-    int64_t extended;
-    if (sign_bit == 1) {
-        uint64_t extend_mask = (~((1ULL << stored_bits) - 1)) & ((1ULL << tbits) - 1);
-        extended = (int64_t)(raw | extend_mask);
-    } else {
-        extended = (int64_t)raw;
-    }
-    if (extended >= (1LL << (tbits - 1))) extended -= 1LL << tbits;
-    return extended;
+    *neg = 0;
+    return (uint64_t)val;
 }
 
-static int minimal_complement_bytes(int otype, int64_t val, int* sw_out, uint8_t* payload, int* payload_len) {
-    if (val == 0) {
-        *sw_out = 0;
-        payload[0] = 0;
-        *payload_len = 1;
+static int sw_from_magnitude(uint64_t mag) {
+    if (mag < 256) return 0;
+    if (mag < 65536) return 1;
+    if (mag < 4294967296ULL) return 2;
+    return 3;
+}
+
+static int try_embedded_head(int otype, int64_t val, uint8_t* head) {
+    int neg;
+    uint64_t mag = magnitude_mag(otype, val, &neg);
+    if (mag >= 17) return 0;
+    int wb = width_bits(otype);
+    if (mag == 16) {
+        if (neg) {
+            *head = (uint8_t)((1 << 6) | (wb << 4) | 15);
+            return 1;
+        }
         return 0;
     }
-    if (is_unsigned(otype)) {
-        if (val < 0) return -1;
-        uint64_t uval = (uint64_t)val;
-        for (int sw = 0; sw < 4; sw++) {
-            int size = SW_BYTES[sw];
-            if (size < 8 && uval >= (1ULL << (size * 8))) continue;
-            uint_to_le_bytes(uval, size, payload);
-            if ((payload[size - 1] & 0x80) == 0) {
-                *sw_out = sw;
-                *payload_len = size;
-                return 0;
-            }
-        }
-        return -1;
-    }
-    int tbits = target_bits(otype);
-    uint64_t mask = tbits == 64 ? ~0ULL : ((1ULL << tbits) - 1);
-    uint64_t uval = (uint64_t)val & mask;
-
-    if (val < 0) {
-        for (int sw = 0; sw < 4; sw++) {
-            int size = SW_BYTES[sw];
-            int shift = size * 8;
-            if (shift >= tbits) {
-                *sw_out = sw;
-                *payload_len = uint_to_le_bytes(uval, size, payload);
-                return 0;
-            }
-            uint64_t lower = uval & ((1ULL << shift) - 1);
-            uint64_t upper = uval >> shift;
-            uint64_t upper_mask = (1ULL << (tbits - shift)) - 1;
-            if (upper != upper_mask) continue;
-            int high_byte = (int)((lower >> (shift - 8)) & 0xFF);
-            if ((high_byte & 0x80) == 0) continue;
-            *sw_out = sw;
-            *payload_len = uint_to_le_bytes(lower, size, payload);
-            return 0;
-        }
+    if (neg) {
+        *head = (uint8_t)((1 << 6) | (wb << 4) | (int)(mag - 1));
     } else {
-        for (int sw = 0; sw < 4; sw++) {
-            int size = SW_BYTES[sw];
-            if (size < 8 && uval >= (1ULL << (size * 8))) continue;
-            uint_to_le_bytes(uval, size, payload);
-            if ((payload[size - 1] & 0x80) == 0) {
-                *sw_out = sw;
-                *payload_len = size;
-                return 0;
-            }
-        }
+        *head = (uint8_t)((wb << 4) | (int)mag);
     }
-    int sw_final = 3;
-    if (tbits == 8) sw_final = 0;
-    else if (tbits == 16) sw_final = 1;
-    else if (tbits == 32) sw_final = 2;
-    *sw_out = sw_final;
-    *payload_len = uint_to_le_bytes(uval, SW_BYTES[sw_final], payload);
-    return 0;
+    return 1;
+}
+
+static int64_t value_from_magnitude(uint64_t mag, int neg) {
+    if (!neg) return (int64_t)mag;
+    if (mag == (1ULL << 63)) return INT64_MIN;
+    return -(int64_t)mag;
 }
 
 static int encode_object(const idmix_value_t* tv, uint8_t* out, int* out_len) {
     if (!validate_range(tv->otype, tv->val)) return -1;
-    if (is_unsigned(tv->otype) && tv->val >= 0 && tv->val <= 15) {
-        int wb = width_bits(tv->otype);
-        out[0] = (uint8_t)((wb << 4) | tv->val);
+    uint8_t embedded;
+    if (try_embedded_head(tv->otype, tv->val, &embedded)) {
+        out[0] = embedded;
         *out_len = 1;
         return 0;
     }
-    if (is_signed(tv->otype) && tv->val >= -16 && tv->val <= -1) {
-        int wb = width_bits(tv->otype);
-        int v = (int)(-tv->val - 1);
-        out[0] = (uint8_t)((1 << 6) | (wb << 4) | v);
-        *out_len = 1;
-        return 0;
-    }
-    int sw, plen;
-    uint8_t payload[8];
-    if (minimal_complement_bytes(tv->otype, tv->val, &sw, payload, &plen) != 0) return -1;
+    int neg;
+    uint64_t mag = magnitude_mag(tv->otype, tv->val, &neg);
+    int sw = sw_from_magnitude(mag);
+    int plen = uint_to_le_bytes(mag, SW_BYTES[sw], out + 1);
     out[0] = (uint8_t)(0x80 | (sw << 4) | tv->otype);
-    memcpy(out + 1, payload, (size_t)plen);
+    if (neg) out[0] |= 1 << 6;
     *out_len = 1 + plen;
     return 0;
 }
@@ -477,16 +426,17 @@ static int decode_object(const uint8_t* data, size_t len, size_t offset, idmix_v
         *consumed = 1;
         return 0;
     }
-    if (((head >> 6) & 1) != 0) return -1;
     int sw = (head >> 4) & 0x03;
     int otype = head & 0x0F;
     if (otype > IDMIX_OTYPE_INT64) return -1;
     int num_bytes = SW_BYTES[sw];
     if (len < offset + 1 + (size_t)num_bytes) return -1;
-    uint64_t raw = 0;
-    for (int i = 0; i < num_bytes; i++) raw |= (uint64_t)data[offset + 1 + i] << (8 * i);
+    uint64_t mag = 0;
+    for (int i = 0; i < num_bytes; i++) mag |= (uint64_t)data[offset + 1 + i] << (8 * i);
+    int neg = (head >> 6) & 1;
     tv->otype = otype;
-    tv->val = reconstruct_int(otype, sw, raw);
+    tv->val = value_from_magnitude(mag, neg);
+    if (!validate_range(otype, tv->val)) return -1;
     *consumed = (size_t)(1 + num_bytes);
     return 0;
 }

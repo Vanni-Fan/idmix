@@ -22,10 +22,9 @@ public final class TypedValue {
     public static TypedValue u8(int v) { return new TypedValue(OTYPE_UINT8, v); }
     public static TypedValue u16(int v) { return new TypedValue(OTYPE_UINT16, v); }
     public static TypedValue u32(long v) { return new TypedValue(OTYPE_UINT32, v); }
-    public static TypedValue u64(long v) {
-        if (v > Long.MAX_VALUE) throw new IllegalArgumentException("uint64 overflows");
-        return new TypedValue(OTYPE_UINT64, v);
-    }
+    public static TypedValue u64(long v) { return new TypedValue(OTYPE_UINT64, v); }
+    /** Parse decimal or hex unsigned 64-bit value (e.g. {@code "18446744073709551615"}). */
+    public static TypedValue u64(String v) { return new TypedValue(OTYPE_UINT64, Long.parseUnsignedLong(v)); }
     public static TypedValue i8(int v) { return new TypedValue(OTYPE_INT8, v); }
     public static TypedValue i16(int v) { return new TypedValue(OTYPE_INT16, v); }
     public static TypedValue i32(int v) { return new TypedValue(OTYPE_INT32, v); }

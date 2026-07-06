@@ -11,6 +11,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class IdMixTest {
 
+    private static final long EXTREME_UINT32_MAX = 4294967295L;
+    private static final int EXTREME_INT32_MIN = -2147483648;
+    private static final long EXTREME_INT64_MIN = Long.MIN_VALUE;
+    private static final long EXTREME_INT64_MAX = Long.MAX_VALUE;
+    private static final long EXTREME_UINT64_MAX_BITS = -1L;
+
     private static String hex(byte[] b) {
         if (b == null || b.length == 0) return "(empty)";
         StringBuilder sb = new StringBuilder();
@@ -76,5 +82,29 @@ class IdMixTest {
         Set<String> seen = new HashSet<>();
         for (int i = 0; i < 50; i++) seen.add(m.encode(TypedValue.u32(42)));
         assertTrue(seen.size() >= 2);
+    }
+
+    @Test
+    @DisplayName("extreme values round trip")
+    void extremeValuesRoundTrip() {
+        IdMix m = IdMix.newDefault();
+        assertEquals(EXTREME_UINT32_MAX, m.decode(m.encode(TypedValue.u32(EXTREME_UINT32_MAX))).get(0).val);
+        assertEquals(EXTREME_INT32_MIN, m.decode(m.encode(TypedValue.i32(EXTREME_INT32_MIN))).get(0).val);
+        assertEquals(EXTREME_INT64_MIN, m.decode(m.encode(TypedValue.i64(EXTREME_INT64_MIN))).get(0).val);
+        assertEquals(EXTREME_INT64_MAX, m.decode(m.encode(TypedValue.i64(EXTREME_INT64_MAX))).get(0).val);
+        assertEquals(EXTREME_UINT64_MAX_BITS, m.decode(m.encode(TypedValue.u64("18446744073709551615"))).get(0).val);
+    }
+
+    @Test
+    @DisplayName("cross-language vectors")
+    void crossLanguageVectors() {
+        IdMix m = new IdMix(CrossLanguageFixtures.ALPHABET);
+        for (CrossLanguageFixtures.Case c : CrossLanguageFixtures.cases()) {
+            List<TypedValue> decoded = m.decode(c.encoded());
+            assertEquals(c.values().size(), decoded.size(), c.name());
+            for (int i = 0; i < c.values().size(); i++) {
+                assertEquals(c.values().get(i), decoded.get(i), c.name() + "[" + i + "]");
+            }
+        }
     }
 }

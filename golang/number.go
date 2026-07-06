@@ -6,7 +6,6 @@ package idmix
 
 import (
 	"fmt"
-	"math"
 )
 
 // normalizeAny 批量将 []any 转为内部 typedValue 切片。
@@ -27,7 +26,7 @@ func normalizeAny(values []any) ([]typedValue, error) {
 //
 // 支持类型及映射规则：
 //   - uint8/16/32 → 保留对应无符号 otype
-//   - uint64、uint → otypeUint64（值不得超过 math.MaxInt64）
+//   - uint64、uint → otypeUint64（> math.MaxInt64 时以 int64 位模式存储）
 //   - int8/16/32/64、int → 保留对应有符号 otype（int 统一为 otypeInt64）
 //
 // 不支持的类型（如 string、float）将返回错误。
@@ -40,14 +39,8 @@ func valueFromAny(v any) (typedValue, error) {
 	case uint32:
 		return typedValue{otypeUint32, int64(x)}, nil
 	case uint64:
-		if x > math.MaxInt64 {
-			return typedValue{}, fmt.Errorf("uint64 value %d overflows int64", x)
-		}
 		return typedValue{otypeUint64, int64(x)}, nil
 	case uint:
-		if uint64(x) > math.MaxInt64 {
-			return typedValue{}, fmt.Errorf("uint value %d overflows int64", x)
-		}
 		return typedValue{otypeUint64, int64(x)}, nil
 	case int8:
 		return typedValue{otypeInt8, int64(x)}, nil

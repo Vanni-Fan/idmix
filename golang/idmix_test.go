@@ -213,7 +213,7 @@ func TestEmbeddedModes(t *testing.T) {
 		{uint8(10), 1, "内嵌"},
 		{int16(-5), 1, "内嵌"},
 		{uint32(16), 2, "扩展"},
-		{int32(0), 2, "扩展"},
+		{int32(0), 1, "内嵌"},
 	}
 	for _, c := range cases {
 		tv, err := valueFromAny(c.v)

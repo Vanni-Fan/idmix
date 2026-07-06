@@ -1,0 +1,144 @@
+{
+  "alphabet": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+  "cases": [
+    {
+      "name": "spec_example",
+      "variant": 0,
+      "values": [
+        {
+          "otype": 1,
+          "val": "5"
+        },
+        {
+          "otype": 7,
+          "val": "-1"
+        },
+        {
+          "otype": 2,
+          "val": "40"
+        }
+      ],
+      "encoded": "hYpGvRq6B"
+    },
+    {
+      "name": "uint32_max",
+      "variant": 0,
+      "values": [
+        {
+          "otype": 2,
+          "val": "4294967295"
+        }
+      ],
+      "encoded": "LwMDzFPIwK"
+    },
+    {
+      "name": "int32_min",
+      "variant": 0,
+      "values": [
+        {
+          "otype": 6,
+          "val": "-2147483648"
+        }
+      ],
+      "encoded": "LwMH4is20x"
+    },
+    {
+      "name": "int64_min",
+      "variant": 0,
+      "values": [
+        {
+          "otype": 7,
+          "val": "-9223372036854775808"
+        }
+      ],
+      "encoded": "eA3BqyCfeJ73bad1"
+    },
+    {
+      "name": "int64_max",
+      "variant": 0,
+      "values": [
+        {
+          "otype": 7,
+          "val": "9223372036854775807"
+        }
+      ],
+      "encoded": "eA3A34tsjcVrPPF6"
+    },
+    {
+      "name": "uint64_max",
+      "variant": 0,
+      "values": [
+        {
+          "otype": 3,
+          "val": "18446744073709551615"
+        }
+      ],
+      "encoded": "eA3A5uobrwZQuXVc"
+    },
+    {
+      "name": "mixed_extremes",
+      "variant": 0,
+      "values": [
+        {
+          "otype": 2,
+          "val": "4294967295"
+        },
+        {
+          "otype": 6,
+          "val": "-2147483648"
+        },
+        {
+          "otype": 7,
+          "val": "-9223372036854775808"
+        },
+        {
+          "otype": 7,
+          "val": "9223372036854775807"
+        }
+      ],
+      "encoded": "bTcNSaewCwrxPlc5fGCbq11xnBz120cpBTJ1A6ztNY"
+    },
+    {
+      "name": "embedded_small",
+      "variant": 0,
+      "values": [
+        {
+          "otype": 0,
+          "val": "15"
+        },
+        {
+          "otype": 4,
+          "val": "-16"
+        },
+        {
+          "otype": 1,
+          "val": "0"
+        },
+        {
+          "otype": 5,
+          "val": "-1"
+        }
+      ],
+      "encoded": "hYI25mckd"
+    },
+    {
+      "name": "access_key",
+      "variant": 0,
+      "values": [
+        {
+          "otype": 2,
+          "val": "1001"
+        },
+        {
+          "otype": 3,
+          "val": "1690000000"
+        },
+        {
+          "otype": 0,
+          "val": "3"
+        }
+      ],
+      "encoded": "eB12pBLCoFhaAgPE"
+    }
+  ]
+}

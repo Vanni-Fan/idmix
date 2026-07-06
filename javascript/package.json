@@ -1,6 +1,6 @@
 {
   "name": "@vanni.fan/idmix",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "XID v1.1: encode typed integer sequences to short strings",
   "type": "module",
   "main": "src/idmix.js",

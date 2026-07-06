@@ -44,17 +44,10 @@ impl Value {
                 otype: OTYPE_UINT32,
                 val: v as i64,
             }),
-            Value::U64(v) => {
-                if v > i64::MAX as u64 {
-                    return Err(IdMixError::msg(format!(
-                        "uint64 value {v} overflows i64"
-                    )));
-                }
-                Ok(TypedValue {
-                    otype: OTYPE_UINT64,
-                    val: v as i64,
-                })
-            }
+            Value::U64(v) => Ok(TypedValue {
+                otype: OTYPE_UINT64,
+                val: v as i64,
+            }),
             Value::I8(v) => Ok(TypedValue {
                 otype: OTYPE_INT8,
                 val: v as i64,

@@ -88,19 +88,16 @@ pub fn decode_binary(m: &IdMix, data: &[u8]) -> Result<Vec<TypedValue>, IdMixErr
 
 fn encode_object(tv: TypedValue) -> Result<Vec<u8>, IdMixError> {
     validate_range(tv.otype, tv.val)?;
-    if is_unsigned(tv.otype) && tv.val >= 0 && tv.val <= 15 {
-        let wb = width_bits(tv.otype);
-        let head = (wb << 4) | (tv.val as u8);
+    if let Some(head) = try_embedded_head(tv.otype, tv.val) {
         return Ok(vec![head]);
     }
-    if is_signed(tv.otype) && tv.val >= -16 && tv.val <= -1 {
-        let wb = width_bits(tv.otype);
-        let v = (-tv.val - 1) as u8;
-        let head = (1 << 6) | (wb << 4) | v;
-        return Ok(vec![head]);
+    let (mag, neg) = magnitude_from_typed(tv);
+    let sw = sw_from_magnitude(mag);
+    let payload = uint_to_le_bytes(mag, SW_BYTES[sw as usize]);
+    let mut head = 0x80 | (sw << 4) | tv.otype;
+    if neg {
+        head |= 1 << 6;
     }
-    let (sw, payload) = minimal_complement_bytes(tv.otype, tv.val)?;
-    let head = 0x80 | (sw << 4) | tv.otype;
     let mut out = Vec::with_capacity(1 + payload.len());
     out.push(head);
     out.extend_from_slice(&payload);
@@ -124,9 +121,6 @@ fn decode_object(data: &[u8]) -> Result<(TypedValue, usize), IdMixError> {
         };
         return Ok((TypedValue { otype, val }, 1));
     }
-    if (head >> 6) & 1 != 0 {
-        return Err(IdMixError::msg("reserved bit set in extended mode"));
-    }
     let sw = (head >> 4) & 0x03;
     let otype = head & 0x0f;
     if otype > OTYPE_INT64 {
@@ -136,11 +130,13 @@ fn decode_object(data: &[u8]) -> Result<(TypedValue, usize), IdMixError> {
     if data.len() < 1 + num_bytes {
         return Err(IdMixError::msg("truncated object payload"));
     }
-    let mut raw = 0u64;
+    let mut mag = 0u64;
     for i in 0..num_bytes {
-        raw |= (data[1 + i] as u64) << (8 * i);
+        mag |= (data[1 + i] as u64) << (8 * i);
     }
-    let val = reconstruct_int(otype, sw, raw)?;
+    let neg = (head >> 6) & 1 != 0;
+    let val = value_from_magnitude(mag, neg);
+    validate_range(otype, val)?;
     Ok((TypedValue { otype, val }, 1 + num_bytes))
 }
 
@@ -161,87 +157,56 @@ fn width_bits(otype: u8) -> u8 {
     }
 }
 
-fn target_bits(otype: u8) -> u32 {
-    match otype {
-        OTYPE_UINT8 | OTYPE_INT8 => 8,
-        1 | 5 => 16,
-        2 | 6 => 32,
-        _ => 64,
+fn magnitude_from_typed(tv: TypedValue) -> (u64, bool) {
+    if is_unsigned(tv.otype) {
+        return (tv.val as u64, false);
+    }
+    if tv.val < 0 {
+        return (tv.val.wrapping_neg() as u64, true);
+    }
+    (tv.val as u64, false)
+}
+
+fn sw_from_magnitude(mag: u64) -> u8 {
+    if mag < 256 {
+        return 0;
+    }
+    if mag < 65536 {
+        return 1;
+    }
+    if mag < 4294967296 {
+        return 2;
+    }
+    3
+}
+
+fn try_embedded_head(otype: u8, val: i64) -> Option<u8> {
+    let (mag, neg) = magnitude_from_typed(TypedValue { otype, val });
+    if mag >= 17 {
+        return None;
+    }
+    let wb = width_bits(otype);
+    if mag == 16 {
+        if neg {
+            return Some((1 << 6) | (wb << 4) | 15);
+        }
+        return None;
+    }
+    if neg {
+        Some((1 << 6) | (wb << 4) | ((mag - 1) as u8))
+    } else {
+        Some((wb << 4) | (mag as u8))
     }
 }
 
-fn minimal_complement_bytes(otype: u8, val: i64) -> Result<(u8, Vec<u8>), IdMixError> {
-    if val == 0 {
-        return Ok((0, vec![0x00]));
+fn value_from_magnitude(mag: u64, neg: bool) -> i64 {
+    if !neg {
+        return mag as i64;
     }
-    if is_unsigned(otype) {
-        if val < 0 {
-            return Err(IdMixError::msg(format!(
-                "negative value {val} for unsigned type"
-            )));
-        }
-        let uval = val as u64;
-        for sw in 0u8..4 {
-            let size = SW_BYTES[sw as usize];
-            if size < 8 && uval >= 1u64 << (size * 8) {
-                continue;
-            }
-            let buf = uint_to_le_bytes(uval, size);
-            if buf[size - 1] & 0x80 == 0 {
-                return Ok((sw, buf));
-            }
-        }
-        return Err(IdMixError::msg("value too large for unsigned type"));
+    if mag == 1u64 << 63 {
+        return i64::MIN;
     }
-
-    let tbits = target_bits(otype);
-    let mask = if tbits == 64 {
-        u64::MAX
-    } else {
-        (1u64 << tbits) - 1
-    };
-    let uval = val as u64 & mask;
-
-    if val < 0 {
-        for sw in 0u8..4 {
-            let size = SW_BYTES[sw as usize];
-            let shift = (size * 8) as u32;
-            if shift >= tbits {
-                return Ok((sw, uint_to_le_bytes(uval, size)));
-            }
-            let lower = uval & ((1u64 << shift) - 1);
-            let upper = uval >> shift;
-            let upper_mask = (1u64 << (tbits - shift)) - 1;
-            if upper != upper_mask {
-                continue;
-            }
-            let high_byte = ((lower >> (shift - 8)) & 0xff) as u8;
-            if high_byte & 0x80 == 0 {
-                continue;
-            }
-            return Ok((sw, uint_to_le_bytes(lower, size)));
-        }
-    } else {
-        for sw in 0u8..4 {
-            let size = SW_BYTES[sw as usize];
-            if size < 8 && uval >= 1u64 << (size * 8) {
-                continue;
-            }
-            let buf = uint_to_le_bytes(uval, size);
-            if buf[size - 1] & 0x80 == 0 {
-                return Ok((sw, buf));
-            }
-        }
-    }
-
-    let sw = match tbits {
-        8 => 0,
-        16 => 1,
-        32 => 2,
-        _ => 3,
-    };
-    let size = SW_BYTES[sw as usize];
-    Ok((sw, uint_to_le_bytes(uval, size)))
+    -(mag as i64)
 }
 
 fn uint_to_le_bytes(v: u64, size: usize) -> Vec<u8> {
@@ -252,49 +217,12 @@ fn uint_to_le_bytes(v: u64, size: usize) -> Vec<u8> {
     buf
 }
 
-fn reconstruct_int(otype: u8, sw: u8, raw: u64) -> Result<i64, IdMixError> {
-    let tbits = target_bits(otype);
-    let stored_bits = (SW_BYTES[sw as usize] * 8) as u32;
-    if is_unsigned(otype) {
-        let mask = if tbits == 64 {
-            u64::MAX
-        } else {
-            (1u64 << tbits) - 1
-        };
-        return Ok((raw & mask) as i64);
-    }
-    let sign_bit = (raw >> (stored_bits - 1)) & 1;
-    if tbits <= stored_bits {
-        let mask = if tbits == 64 {
-            u64::MAX
-        } else {
-            (1u64 << tbits) - 1
-        };
-        let mut val = raw & mask;
-        if sign_bit == 1 && val & (1u64 << (tbits - 1)) != 0 {
-            val -= 1u64 << tbits;
-        }
-        return Ok(val as i64);
-    }
-    let extended = if sign_bit == 1 {
-        let extend_mask = (!((1u64 << stored_bits) - 1)) & ((1u64 << tbits) - 1);
-        raw | extend_mask
-    } else {
-        raw
-    };
-    let mut val = extended;
-    if val >= 1u64 << (tbits - 1) {
-        val -= 1u64 << tbits;
-    }
-    Ok(val as i64)
-}
-
 fn validate_range(otype: u8, val: i64) -> Result<(), IdMixError> {
     let ok = match otype {
         OTYPE_UINT8 => (0..=u8::MAX as i64).contains(&val),
         1 => (0..=u16::MAX as i64).contains(&val),
         2 => (0..=u32::MAX as i64).contains(&val),
-        OTYPE_UINT64 => val >= 0,
+        OTYPE_UINT64 => true,
         OTYPE_INT8 => (i8::MIN as i64..=i8::MAX as i64).contains(&val),
         5 => (i16::MIN as i64..=i16::MAX as i64).contains(&val),
         6 => (i32::MIN as i64..=i32::MAX as i64).contains(&val),

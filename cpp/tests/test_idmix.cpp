@@ -7,6 +7,11 @@
 
 using namespace idmix;
 
+static constexpr int64_t EXTREME_UINT32_MAX = 4294967295LL;
+static constexpr int64_t EXTREME_INT32_MIN = -2147483648LL;
+static constexpr int64_t EXTREME_INT64_MIN = INT64_MIN;
+static constexpr int64_t EXTREME_INT64_MAX = INT64_MAX;
+
 static std::string hex(const std::vector<uint8_t>& b) {
     std::ostringstream os;
     for (size_t i = 0; i < b.size(); ++i) {
@@ -24,6 +29,18 @@ static void check(bool ok, const char* msg) {
     std::cout << "OK: " << msg << std::endl;
 }
 
+static void roundTrip(IdMix& m, const std::vector<TypedValue>& in, const char* name) {
+    auto s = m.encode(in);
+    auto out = m.decode(s);
+    check(out == in, name);
+}
+
+static void decodeVector(IdMix& m, const std::string& encoded, const std::vector<TypedValue>& want,
+                         const char* name) {
+    auto out = m.decode(encoded);
+    check(out == want, name);
+}
+
 int main() {
     IdMix m = IdMix::newDefault();
     std::vector<TypedValue> typed = {TypedValue::u16(5), TypedValue::i64(-1), TypedValue::u32(40)};
@@ -31,10 +48,27 @@ int main() {
     std::vector<uint8_t> want = {0x0F, 0x00, 0x22, 0x47, 0xB5, 0x1F};
     check(data == want, "spec example binary");
 
-    auto s = m.encode(typed);
-    auto out = m.decode(s);
-    check(out.size() == 3 && out[0] == typed[0] && out[1] == typed[1] && out[2] == typed[2],
-          "round trip basic");
+    roundTrip(m, typed, "round trip basic");
+
+    roundTrip(m, {TypedValue::u32(EXTREME_UINT32_MAX)}, "uint32_max");
+    roundTrip(m, {TypedValue::i32(static_cast<int>(EXTREME_INT32_MIN))}, "int32_min");
+    roundTrip(m, {TypedValue::i64(EXTREME_INT64_MIN)}, "int64_min");
+    roundTrip(m, {TypedValue::i64(EXTREME_INT64_MAX)}, "int64_max");
+    roundTrip(m, {TypedValue::u64(UINT64_MAX)}, "uint64_max");
+
+    std::vector<TypedValue> mixed = {
+        TypedValue::u32(EXTREME_UINT32_MAX),
+        TypedValue::i32(static_cast<int>(EXTREME_INT32_MIN)),
+        TypedValue::i64(EXTREME_INT64_MIN),
+        TypedValue::i64(EXTREME_INT64_MAX),
+    };
+    roundTrip(m, mixed, "mixed_extremes");
+
+    decodeVector(m, "hYpGvRq6B", typed, "cross-language spec_example");
+    decodeVector(m, "LwMDzFPIwK", {TypedValue::u32(EXTREME_UINT32_MAX)}, "cross-language uint32_max");
+    decodeVector(m, "LwMH4is20x", {TypedValue::i32(static_cast<int>(EXTREME_INT32_MIN))}, "cross-language int32_min");
+    decodeVector(m, "eA3BqyCfeJ73bad1", {TypedValue::i64(EXTREME_INT64_MIN)}, "cross-language int64_min");
+    decodeVector(m, "bTcNSaewCwrxPlc5fGCbq11xnBz120cpBTJ1A6ztNY", mixed, "cross-language mixed_extremes");
 
     IdMix m2("abcd");
     auto s2 = m2.encode({TypedValue::u16(100), TypedValue::i32(-10), TypedValue::u8(3)});
