@@ -4,6 +4,8 @@
 
 Encodes multiple **typed integers** or **short strings** (≤63 bytes) into compact text strings, suitable for access keys, short IDs, tokens, and similar use cases. **C, C++, C#, Go, Java, JavaScript, PHP, Python, and Rust** implementations are interoperable and follow the [IDX v1.2 specification](arithmetic.md).
 
+If this project helps you, please give it a **⭐ Star** on GitHub: [github.com/Vanni-Fan/idmix](https://github.com/Vanni-Fan/idmix)
+
 ## Language Documentation
 
 | Language | 中文 | English |
@@ -87,18 +89,19 @@ A 2-byte big-endian length prefix is prepended to the binary block; the whole pa
 
 | Feature | Sqids | idmix |
 | --- | --- | --- |
-| Input types | Non-negative integer sequence (`uint64`) | Typed integer sequence (`uint8`–`uint64` / `int8`–`int64`) |
-| Negative numbers | Not supported | Supported (embedded / extended mode) |
+| Input types | Non-negative integer sequence (`uint64`) | Any typed integer (`uint8`–`uint64` / `int8`–`int64`) or short strings (≤63 bytes) |
+| Negative numbers | Not supported | Supported |
+| Negative / string payloads | Not supported | Strings supported; max 63 bytes per segment |
 | Type self-description | No; decoding needs external schema | Yes; each value carries its original type |
-| Polymorphic encoding | No; same input → same output | Yes; 32 variant strings by default |
-| Self-check | No | Yes; 2-bit global XOR (~75% rejection of random strings) |
+| Polymorphic encoding | No; same input → same output | Yes; 32 variant strings by default (configurable) |
+| Self-check | No | Yes; 2-bit global XOR (~75% rejection of random strings) (configurable) |
 | Blocklist | Supported; filters sensitive words | **Not supported** (see note below) |
 | Minimum length | Supports `min_length` | Not supported (aims for shortest natural encoding) |
 | Custom alphabet | Supported (default 64 chars) | Supported (default 62 chars) |
-| Max elements per encode | No hard limit | Default 255 (configurable) |
+| Max elements per encode | No hard limit | Max 255, default 255 (configurable) |
 
 
-**About blocklists**: idmix does not provide Sqids-style blocklist filtering. idmix has built-in **32-variant polymorphism**—each encode randomly picks a `variant_id`, so string forms are naturally dispersed and the chance of a specific sensitive word is very low; if unsatisfied, call `Encode` again for another variant. Combined with the 2-bit checksum, random guessing is also less effective.
+**About blocklists**: idmix does not provide Sqids-style blocklist filtering. idmix has built-in **32-variant polymorphism**—reducing max element count and increasing variant count further disperses string forms; each encode randomly picks a `variant_id`, so the chance of a specific sensitive word is very low; if unsatisfied, call `Encode` again for another variant. Combined with the 2-bit checksum, random guessing is also less effective.
 
 Below is an **encoding length and performance** comparison of **Go** and **Rust** implementations vs Sqids (single-threaded on local machine, 20,000 samples; idmix lengths include 32 variants, reported as min–max). For extreme-value cases Sqids only supports non-negative integers, so `int64_max` / `uint64_max` are passed as `uint64`; negative cases `int32_min` / `int64_min` / `mixed_extremes` are idmix-only capabilities (see end of section).
 
@@ -215,18 +218,47 @@ cd golang && go test -v -run TestCompareSerializationFormatsPerformance
 All implementations cover **uint8–uint64** (and corresponding signed types int8–int64, 8 otypes total); extended-mode payloads are unsigned little-endian bytes with `otype` indicating type; signed types strip redundant sign-extension bytes when encoding to save space.
 
 
-| Language | uint64 / large integers | Special requirements |
-| --- | --- | --- |
-| **Go** | Native `uint64`; internally passed as bit patterns via `int64`/`uint64` | None |
-| **Rust** | Native `u64` / `i64` | Text-layer radix encoding depends on `num-bigint` crate |
-| **Python** | Native arbitrary-precision `int` | None |
-| **JavaScript** | `BigInt` (`typed_value.js`) | Node.js 10.4+; int64/uint64 in cross-language JSON vectors use **strings** to avoid `JSON.parse` precision loss |
-| **Java** | `long` API + unsigned bit patterns (`Long.compareUnsigned`) | `TypedValue.u64()` accepts decimal or `0x` hex strings |
-| **C#** | `ulong` / `long` + unsigned bit patterns | `TypedValue.U64(ulong)` |
-| **VB.NET** | Same as C# | Same as C# |
-| **PHP** | **ext-bcmath** decimal strings (`IntMath`) | **Must enable** `bcmath` extension (`composer.json` declares `ext-bcmath`); 32- and 64-bit PHP both handle full uint64 |
-| **C / C++** | `uint64_t` / `int64_t` | In C API, `idmix_value_t.val` is `int64_t`; large uint64 values passed as bit patterns |
+| Language | uint64 / large integers | Decoded value type | Special requirements |
+| --- | --- | --- | --- |
+| **Go** | Native `uint64` / `int64` | Native numeric types | None |
+| **Rust** | Native `u64` / `i64` | Native numeric types | Text-layer radix encoding depends on `num-bigint` crate |
+| **Python** | Native arbitrary-precision `int` | `int` | None |
+| **JavaScript** | `number` / `bigint` | `number` within `±(2^53-1)`; **`bigint`** beyond (e.g. `18446744073709551615n`) | Node.js 10.4+; int64/uint64 in cross-language JSON vectors use **strings** to avoid `JSON.parse` precision loss |
+| **Java** | `long` API + unsigned bit patterns (`Long.compareUnsigned`) | `long` (uint64 stored as unsigned bit pattern) | `TypedValue.u64()` accepts decimal or `0x` hex **strings** when encoding |
+| **C#** | `ulong` / `long` + unsigned bit patterns | `ulong` / `long` | `TypedValue.U64(ulong)` |
+| **VB.NET** | Same as C# | Same as C# | Same as C# |
+| **PHP** | **ext-bcmath** decimal strings (`IntMath`) | **All integers are decimal strings** (`TypedValue::$val`), e.g. `"18446744073709551615"` | **Must enable** `bcmath` extension (`composer.json` declares `ext-bcmath`); 32- and 64-bit PHP both handle full uint64 |
+| **C / C++** | `uint64_t` / `int64_t` | Native integer types | In C API, `idmix_value_t.val` is `int64_t`; large uint64 values passed as bit patterns |
 
+
+### Decoding representation without native uint64
+
+All languages are **fully interoperable at the binary protocol layer**, but the numeric type returned to callers after decode varies by language. When decoding very large integers encoded in another language, handle values according to the target language:
+
+| Scenario | PHP | JavaScript | Notes |
+| --- | --- | --- | --- |
+| Decode Go-encoded `uint64_max` | `$out[0]->val === '18446744073709551615'` | `out[0].val === 18446744073709551615n` | PHP always uses **decimal strings**; JS uses **`bigint`** beyond safe integer range |
+| Encode large uint64 | `TypedValue::u64('18446744073709551615')` | `u64(18446744073709551615n)` or `u64('18446744073709551615')` | Both accept string input; PHP always stores internally as string |
+| Cross-language JSON vectors | Field value is string `"18446744073709551615"` | Field value is string (test file avoids `JSON.parse` precision loss) | See `testdata/cross_language_vectors.json` |
+
+**PHP example** (decoding a uint64 max value encoded by another language):
+
+```php
+$out = $m->decode($str);
+// $out[0] is TypedValue, otype=3 (uint64)
+echo $out[0]->val; // "18446744073709551615" (string, not int)
+```
+
+**JavaScript example**:
+
+```javascript
+const out = m.decode(str);
+// out[0].otype === 3
+typeof out[0].val === 'bigint'  // true (large uint64)
+out[0].val === 18446744073709551615n
+```
+
+> **Note**: JavaScript uses `bigint`, not strings, for large integers; only PHP (and the cross-language JSON vector file) use decimal strings. Use `typedValuesEqual()` or each language's equivalent helper for comparisons—do not compare across languages with raw `===`.
 
 ### Extended Mode Notes
 
@@ -615,3 +647,7 @@ Current version **0.4.0** (IDX v1.2). Install per language via package managers;
 ## License
 
 Apache-2.0
+
+---
+
+If you find this useful, please give the project a **⭐**: [github.com/Vanni-Fan/idmix](https://github.com/Vanni-Fan/idmix)
