@@ -3,8 +3,8 @@ using System.Text;
 
 namespace Vanni.Idmix;
 
-/// <summary>XID 文本层：自定义进制编解码。</summary>
-public sealed class RadixCodec
+/// <summary>基于自定义字符表的 Base-N 编解码器（默认 idmix 文本层）。</summary>
+public sealed class RadixCodec : ICodec
 {
     private readonly int _base;
     private readonly string _chars;
@@ -26,10 +26,10 @@ public sealed class RadixCodec
         }
     }
 
+    public string Alphabet => _chars;
     public int Base => _base;
-    public string Chars => _chars;
 
-    public string EncodeBytes(byte[] data)
+    public string Encode(byte[] data)
     {
         if (data.Length == 0) return _chars[0].ToString();
         var buf = new byte[2 + data.Length];
@@ -40,7 +40,7 @@ public sealed class RadixCodec
         return IntToString(n);
     }
 
-    public byte[] DecodeBytes(string s)
+    public byte[] Decode(string s)
     {
         if (string.IsNullOrEmpty(s))
             throw new ArgumentException("empty string", nameof(s));

@@ -17,37 +17,37 @@ struct CrossCase {
 const CROSS_CASES: &[CrossCase] = &[
     CrossCase {
         name: "spec_example",
-        encoded: "hYpGvRq6B",
+        encoded: "ixHjl0FK7",
         values: &[Value::U16(5), Value::I64(-1), Value::U32(40)],
     },
     CrossCase {
         name: "uint32_max",
-        encoded: "LwMDzFPIwK",
+        encoded: "hUdZLNKGa",
         values: &[Value::U32(EXTREME_UINT32_MAX)],
     },
     CrossCase {
         name: "int32_min",
-        encoded: "LwMH4is20x",
+        encoded: "hUdElRoHP",
         values: &[Value::I32(EXTREME_INT32_MIN)],
     },
     CrossCase {
         name: "int64_min",
-        encoded: "eA3BqyCfeJ73bad1",
+        encoded: "8B10qg6x0EAf3b",
         values: &[Value::I64(EXTREME_INT64_MIN)],
     },
     CrossCase {
         name: "int64_max",
-        encoded: "eA3A34tsjcVrPPF6",
+        encoded: "8B2cU8kbWpQ2RM",
         values: &[Value::I64(EXTREME_INT64_MAX)],
     },
     CrossCase {
         name: "uint64_max",
-        encoded: "eA3A5uobrwZQuXVc",
+        encoded: "8B3CPRsv0Owa6S",
         values: &[Value::U64(EXTREME_UINT64_MAX)],
     },
     CrossCase {
         name: "mixed_extremes",
-        encoded: "bTcNSaewCwrxPlc5fGCbq11xnBz120cpBTJ1A6ztNY",
+        encoded: "bULoRnNZJinEZGKD78wIigIaw6QplS8B0HGNCKO2L6",
         values: &[
             Value::U32(EXTREME_UINT32_MAX),
             Value::I32(EXTREME_INT32_MIN),
@@ -57,12 +57,12 @@ const CROSS_CASES: &[CrossCase] = &[
     },
     CrossCase {
         name: "embedded_small",
-        encoded: "hYI25mckd",
+        encoded: "ixHorRWmh",
         values: &[Value::U8(15), Value::I8(-16), Value::U16(0), Value::I16(-1)],
     },
     CrossCase {
         name: "access_key",
-        encoded: "eB12pBLCoFhaAgPE",
+        encoded: "eNe8RmcNtYw60Xjc",
         values: &[Value::U32(1001), Value::U64(1_690_000_000), Value::U8(3)],
     },
 ];
@@ -90,5 +90,29 @@ fn cross_language_vectors() {
     for c in CROSS_CASES {
         let out = m.decode(c.encoded).expect(c.name);
         assert_eq!(out, c.values, "{}", c.name);
+    }
+}
+
+#[test]
+fn cross_language_string_example() {
+    let m = IdMix::builder().alphabet(DEFAULT_ALPHABET).build().unwrap();
+    let values = [
+        Value::String("hello".into()),
+        Value::U16(5),
+        Value::String("世界".into()),
+    ];
+    let encoded = "ceOqw5RPaTfgnfXyp7Sdepb";
+    let out = m.decode(encoded).unwrap();
+    assert_eq!(out, values);
+    let enc = m.encode_with_variant(0, &values).unwrap();
+    assert_eq!(enc, encoded);
+}
+
+#[test]
+fn cross_language_encode_deterministic() {
+    let m = IdMix::builder().alphabet(DEFAULT_ALPHABET).build().unwrap();
+    for c in CROSS_CASES {
+        let enc = m.encode_with_variant(0, c.values).expect(c.name);
+        assert_eq!(enc, c.encoded, "{}", c.name);
     }
 }

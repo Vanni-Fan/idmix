@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
-project(idmix VERSION 0.2.0 LANGUAGES CXX)
+project(idmix VERSION 0.4.0 LANGUAGES CXX)
 
 add_library(idmix STATIC
+    src/idx.cpp
+    src/codec.cpp
     src/idmix.cpp
-    src/xid_codec.cpp
 )
 add_library(idmix::idmix ALIAS idmix)
 

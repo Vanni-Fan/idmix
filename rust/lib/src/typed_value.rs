@@ -9,15 +9,15 @@ pub const OTYPE_INT16: u8 = 5;
 pub const OTYPE_INT32: u8 = 6;
 pub const OTYPE_INT64: u8 = 7;
 
-/// 编解码时保留原始类型的整数值。
+/// Typed integer value used in low-level IDX operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TypedValue {
     pub otype: u8,
     pub val: i64,
 }
 
-/// 对外暴露的带类型整数值。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Public value type for encode/decode.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     U8(u8),
     U16(u16),
@@ -27,6 +27,8 @@ pub enum Value {
     I16(i16),
     I32(i32),
     I64(i64),
+    String(String),
+    Bytes(Vec<u8>),
 }
 
 impl Value {
@@ -64,6 +66,9 @@ impl Value {
                 otype: OTYPE_INT64,
                 val: v,
             }),
+            Value::String(_) | Value::Bytes(_) => Err(IdMixError::msg(
+                "string/bytes values must use Value directly, not TypedValue",
+            )),
         }
     }
 
@@ -80,16 +85,4 @@ impl Value {
             _ => Err(IdMixError::msg(format!("invalid otype {}", tv.otype))),
         }
     }
-}
-
-pub fn normalize_values(values: &[Value]) -> Result<Vec<TypedValue>, IdMixError> {
-    values
-        .iter()
-        .copied()
-        .map(Value::to_typed)
-        .collect()
-}
-
-pub fn materialize_values(typed: &[TypedValue]) -> Result<Vec<Value>, IdMixError> {
-    typed.iter().copied().map(Value::from_typed).collect()
 }

@@ -117,6 +117,40 @@ final class IntMath
         return $buf;
     }
 
+    public static function signedToLEBytes(string $v, int $size): string
+    {
+        $bits = $size * 8;
+        $mod = bcpow('2', (string) $bits);
+        $u = self::isNegative($v) ? bcadd($mod, $v) : $v;
+        return self::uintToLEBytes($u, $size);
+    }
+
+    public static function leBytesToSigned(string $payload): string
+    {
+        $u = self::bytesToUint($payload);
+        $size = strlen($payload);
+        $bitWidth = $size * 8;
+        $signBit = self::pow2($bitWidth - 1);
+        if (self::compare($u, $signBit) >= 0) {
+            $u = bcsub($u, bcpow('2', (string) $bitWidth));
+        }
+        return $u;
+    }
+
+    public static function swFromSignedValue(string $val): int
+    {
+        if (self::compare($val, '-128') >= 0 && self::compare($val, '127') <= 0) {
+            return 0;
+        }
+        if (self::compare($val, '-32768') >= 0 && self::compare($val, '32767') <= 0) {
+            return 1;
+        }
+        if (self::compare($val, '-2147483648') >= 0 && self::compare($val, '2147483647') <= 0) {
+            return 2;
+        }
+        return 3;
+    }
+
     public static function bytesToUint(string $bytes): string
     {
         $n = '0';

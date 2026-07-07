@@ -1,6 +1,8 @@
 /**
- * XID 文本层：自定义进制编解码。
+ * RadixCodec：基于自定义字符表的 Base-N 二进制↔文本编解码。
  */
+
+export const DEFAULT_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 export class RadixCodec {
   /** @param {string} alphabet */
@@ -19,8 +21,16 @@ export class RadixCodec {
     }
   }
 
+  /** @param {string} alphabet */
+  static create(alphabet) {
+    return new RadixCodec(alphabet);
+  }
+
+  alphabet() { return this.chars.join(''); }
+  baseSize() { return this.base; }
+
   /** @param {Uint8Array} data */
-  encodeBytes(data) {
+  encode(data) {
     if (data.length === 0) return this.chars[0];
     const wrapped = new Uint8Array(2 + data.length);
     wrapped[0] = (data.length >> 8) & 0xff;
@@ -32,7 +42,7 @@ export class RadixCodec {
   }
 
   /** @param {string} s @returns {Uint8Array} */
-  decodeBytes(s) {
+  decode(s) {
     if (!s) throw new Error('empty string');
     const n = this.stringToInt(s);
     let raw = n.toString(16);

@@ -11,97 +11,130 @@ public class IdMixTests
         return string.Join(" ", b.Select(x => $"{x:X2}"));
     }
 
-    private static List<TypedValue> LogRoundTrip(IdMix m, string title, params TypedValue[] values)
+    private static object[] LogRoundTrip(IdMix m, string title, params object[] values)
     {
         Console.WriteLine($"\n{new string('─', 40)}");
         Console.WriteLine($">> {title}");
-        Console.WriteLine($"  字符表: \"{m.Radix.Chars}\" (进制={m.Radix.Base})");
+        var radix = (RadixCodec)m.Codec;
+        Console.WriteLine($"  字符表: \"{radix.Alphabet}\" (进制={radix.Base})");
         for (var i = 0; i < values.Length; i++)
-            Console.WriteLine($"  编码输入[{i}] otype={values[i].OType} val={values[i].Val}");
+            Console.WriteLine($"  编码输入[{i}] {values[i]}");
         var encoded = m.Encode(values);
-        var raw = m.Radix.DecodeBytes(encoded);
+        var raw = m.Codec.Decode(encoded);
         Console.WriteLine($"  二进制: {Hex(raw)} ({raw.Length} bytes)");
         Console.WriteLine($"  字符串: \"{encoded}\" (len={encoded.Length})");
         var decoded = m.Decode(encoded);
-        for (var i = 0; i < decoded.Count; i++)
-            Console.WriteLine($"  解码输出[{i}] otype={decoded[i].OType} val={decoded[i].Val}");
+        for (var i = 0; i < decoded.Length; i++)
+            Console.WriteLine($"  解码输出[{i}] {decoded[i]}");
+        Assert.Equal(values.Length, decoded.Length);
         for (var i = 0; i < values.Length; i++)
-        {
-            var mark = decoded[i].Equals(values[i]) ? "OK" : "FAIL";
-            Console.WriteLine($"  校验[{i}]: {mark}  want({values[i].OType},{values[i].Val}) => got({decoded[i].OType},{decoded[i].Val})");
-            Assert.Equal(values[i], decoded[i]);
-        }
+            AssertValueEqual(values[i], decoded[i], i);
         return decoded;
+    }
+
+    private static void AssertValueEqual(object want, object got, int index)
+    {
+        if (want is string ws)
+        {
+            Assert.Equal(ws, Assert.IsType<string>(got));
+            return;
+        }
+        var wantObj = Number.ObjectFromAny(want);
+        var gotObj = Number.ObjectFromAny(got);
+        Assert.False(gotObj.IsString);
+        Assert.Equal(wantObj.OType, gotObj.OType);
+        Assert.Equal(wantObj.Val, gotObj.Val);
     }
 
     [Fact]
     public void SpecExampleBinary()
     {
-        var m = IdMix.NewDefault();
-        var typed = new List<TypedValue> { TypedValue.U16(5), TypedValue.I64(-1), TypedValue.U32(40) };
-        var data = XidCodec.EncodeBinary(m, typed, 0);
-        var want = new byte[] { 0x0F, 0x00, 0x22, 0x47, 0xB5, 0x1F };
+        var idx = Idx.Create();
+        var data = idx.EncodeWithVariant(0, (ushort)5, -1L, 40u);
+        var want = new byte[] { 0x80, 0x03, 0x22, 0x47, 0xB5, 0x1F };
         Console.WriteLine($"\n>> 规范二进制块 (variant=0): {Hex(data)}");
         Assert.Equal(want, data);
     }
 
     [Fact]
     public void RoundTripBasic() =>
-        LogRoundTrip(IdMix.NewDefault(), "规范示例: u16(5), i64(-1), u32(40)",
-            TypedValue.U16(5), TypedValue.I64(-1), TypedValue.U32(40));
+        LogRoundTrip(IdMix.Create(), "规范示例: u16(5), i64(-1), u32(40)",
+            (ushort)5, -1L, 40u);
 
     [Fact]
     public void RoundTripUint32Large()
     {
-        var outList = LogRoundTrip(IdMix.NewDefault(), "单值 u32(2000000000)", TypedValue.U32(2_000_000_000L));
-        Assert.Equal(2_000_000_000L, outList[0].Val);
+        var decoded = LogRoundTrip(IdMix.Create(), "单值 u32(2000000000)", 2_000_000_000u);
+        Assert.Equal(2_000_000_000u, decoded[0]);
     }
 
     [Fact]
     public void CustomAlphabet() =>
-        LogRoundTrip(new IdMix("abcd"), "四进制 abcd",
-            TypedValue.U16(100), TypedValue.I32(-10), TypedValue.U8(3));
+        LogRoundTrip(IdMix.Create(b => b.WithAlphabet("abcd")), "四进制 abcd",
+            (ushort)100, -10, (byte)3);
 
     [Fact]
     public void ChecksumRejects()
     {
-        var m = IdMix.NewDefault();
-        var data = XidCodec.EncodeBinary(m, [TypedValue.U32(1)], 0);
-        data[2] ^= 0x01;
-        var tampered = m.Radix.EncodeBytes(data);
+        var m = IdMix.Create();
+        var data = m.Idx.EncodeWithVariant(0, 1u);
+        data[0] ^= 0x01;
+        var tampered = m.Codec.Encode(data);
         Assert.Throws<ArgumentException>(() => m.Decode(tampered));
     }
 
     [Fact]
     public void MultipleEncodingsDiffer()
     {
-        var m = IdMix.NewDefault();
+        var m = IdMix.Create();
         var seen = new HashSet<string>();
-        for (var i = 0; i < 50; i++) seen.Add(m.Encode(TypedValue.U32(42)));
+        for (var i = 0; i < 50; i++) seen.Add(m.Encode(42u));
         Assert.True(seen.Count >= 2);
     }
 
     [Fact]
     public void ExtremeValuesRoundTrip()
     {
-        var m = IdMix.NewDefault();
-        Assert.Equal(4294967295L, LogRoundTrip(m, "uint32_max", TypedValue.U32(4294967295L))[0].Val);
-        Assert.Equal(-2147483648L, LogRoundTrip(m, "int32_min", TypedValue.I32(-2147483648))[0].Val);
-        Assert.Equal(long.MinValue, LogRoundTrip(m, "int64_min", TypedValue.I64(long.MinValue))[0].Val);
-        Assert.Equal(long.MaxValue, LogRoundTrip(m, "int64_max", TypedValue.I64(long.MaxValue))[0].Val);
-        Assert.Equal(unchecked((long)ulong.MaxValue), LogRoundTrip(m, "uint64_max", TypedValue.U64(ulong.MaxValue))[0].Val);
+        var m = IdMix.Create();
+        Assert.Equal(4294967295u, LogRoundTrip(m, "uint32_max", 4294967295u)[0]);
+        Assert.Equal(-2147483648, LogRoundTrip(m, "int32_min", -2147483648)[0]);
+        Assert.Equal(long.MinValue, LogRoundTrip(m, "int64_min", long.MinValue)[0]);
+        Assert.Equal(long.MaxValue, LogRoundTrip(m, "int64_max", long.MaxValue)[0]);
+        Assert.Equal(ulong.MaxValue, LogRoundTrip(m, "uint64_max", ulong.MaxValue)[0]);
     }
 
     [Fact]
     public void CrossLanguageVectors()
     {
-        var m = new IdMix(CrossLanguageFixtures.Alphabet);
+        var m = IdMix.Create(b => b.WithAlphabet(CrossLanguageFixtures.Alphabet));
         foreach (var c in CrossLanguageFixtures.Cases)
         {
             var decoded = m.Decode(c.Encoded);
-            Assert.Equal(c.Values.Length, decoded.Count);
+            Assert.Equal(c.Values.Length, decoded.Length);
             for (var i = 0; i < c.Values.Length; i++)
-                Assert.Equal(c.Values[i], decoded[i]);
+                CrossLanguageFixtures.AssertValueEquals(c.Values[i], decoded[i], i);
         }
+    }
+
+    [Fact]
+    public void CrossLanguageEncodeDeterministic()
+    {
+        var m = IdMix.Create(b => b.WithAlphabet(CrossLanguageFixtures.Alphabet));
+        foreach (var c in CrossLanguageFixtures.Cases)
+        {
+            var inputs = c.Values.Select(CrossLanguageFixtures.Materialize).ToArray();
+            var enc = m.EncodeWithVariant(c.Variant, inputs);
+            Assert.Equal(c.Encoded, enc);
+        }
+    }
+
+    [Fact]
+    public void StringRoundTrip()
+    {
+        var m = IdMix.Create();
+        var decoded = m.Decode(m.EncodeWithVariant(0, "hello", (ushort)5, "世界"));
+        Assert.Equal("hello", decoded[0]);
+        Assert.Equal((ushort)5, decoded[1]);
+        Assert.Equal("世界", decoded[2]);
     }
 }

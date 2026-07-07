@@ -25,14 +25,18 @@ func logRoundTrip(t *testing.T, m *IdMix, title string, inputs ...any) []any {
 	t.Helper()
 	t.Logf("────────────────────────────────────────")
 	t.Logf("▶ %s", title)
-	t.Logf("  字符表: %q (进制=%d)", m.radix.charsString(), m.radix.base)
+	if rc, ok := m.Codec().(*RadixCodec); ok {
+		t.Logf("  字符表: %q (进制=%d)", rc.Alphabet(), rc.Base())
+	} else {
+		t.Logf("  Codec: %T", m.Codec())
+	}
 	logValues(t, "  编码输入", inputs)
 
 	str, err := m.Encode(inputs...)
 	if err != nil {
 		t.Fatalf("编码失败: %v", err)
 	}
-	raw, err := m.radix.decodeBytes(str)
+	raw, err := DecodeString(str, m.Codec())
 	if err != nil {
 		t.Fatalf("文本转二进制失败: %v", err)
 	}
@@ -75,9 +79,4 @@ func formatHex(b []byte) string {
 		fmt.Fprintf(&sb, "%02X", x)
 	}
 	return sb.String()
-}
-
-// charsString 返回字符表的字符串形式，仅供测试日志使用。
-func (rc *radixCodec) charsString() string {
-	return string(rc.chars)
 }

@@ -1,14 +1,14 @@
 [package]
 name = "idmix"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
-description = "XID v1.1: encode typed integer sequences to short strings"
+description = "IDX v1.2: encode typed integer and short string sequences to compact text"
 license = "Apache-2.0"
 homepage = "https://github.com/Vanni-Fan/idmix"
 repository = "https://github.com/Vanni-Fan/idmix"
 documentation = "https://github.com/Vanni-Fan/idmix/blob/main/arithmetic.md"
-readme = "../../README.md"
-keywords = ["xid", "idmix", "encoding", "short-id"]
+readme = "README.md"
+keywords = ["idx", "idmix", "encoding", "short-id"]
 categories = ["encoding", "data-structures"]
 
 [dependencies]
@@ -16,6 +16,7 @@ rand = "0.8.5"
 num-bigint = "0.4"
 num-traits = "0.2"
 thiserror = "1"
+base64 = "0.22"
 
 [dev-dependencies]
 sqids = "0.4.1"

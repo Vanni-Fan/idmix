@@ -1,71 +1,99 @@
 /**
- * XID v1.1 编解码器主入口。
+ * IdMix：IDX 二进制编码 + 可插拔文本层。
  */
 
-import { RadixCodec } from './alphabet.js';
-import * as xidCodec from './xid_codec.js';
+import { RadixCodec, DEFAULT_ALPHABET } from './alphabet.js';
+import { Idx } from './idx_codec.js';
+import { normalizeObjects } from './number.js';
 
-export const DEFAULT_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+export { DEFAULT_ALPHABET };
 
 export class IdMix {
-  /**
-   * @param {object} [opts]
-   * @param {string} [opts.alphabet]
-   * @param {number} [opts.maxObjects]
-   * @param {number} [opts.maxVariants]
-   * @param {number} [opts.checkBits]
-   */
+  /** @param {object} [opts] @param {Idx} [opts.idx] @param {import('./codec.js').Codec} [opts.codec] */
   constructor(opts = {}) {
-    const alphabet = opts.alphabet ?? DEFAULT_ALPHABET;
-    this.radix = new RadixCodec(alphabet);
-    this.maxObjects = opts.maxObjects ?? 511;
-    this.maxVariants = opts.maxVariants ?? 32;
-    this.checkBits = opts.checkBits ?? 2;
-    this.countBits = 0;
-    this.variantBits = 0;
-    this.checkMask = 0;
-    this.countMask = 0;
-    this.variantMask = 0;
-    this.countShift = 0;
-    this.variantShift = 0;
-    this._finalizeLayout();
+    this.idx = opts.idx ?? Idx.create();
+    this.codec = opts.codec ?? RadixCodec.create(DEFAULT_ALPHABET);
   }
 
-  static new(alphabet) {
-    return new IdMix({ alphabet });
+  /** @param {...(object | string | import('./codec.js').Codec | Idx)} args */
+  static new(...args) {
+    const opts = {};
+    for (const arg of args) {
+      if (typeof arg === 'string') opts.alphabet = arg;
+      else if (arg instanceof Idx) opts.idx = arg;
+      else if (arg && typeof arg.encode === 'function' && typeof arg.decode === 'function') opts.codec = arg;
+      else if (arg && typeof arg === 'object') Object.assign(opts, arg);
+    }
+    if (opts.alphabet) opts.codec = RadixCodec.create(opts.alphabet);
+    if (opts.maxObjects != null || opts.maxVariants != null || opts.checkBits != null) {
+      opts.idx = Idx.create({
+        maxObjects: opts.maxObjects,
+        maxVariants: opts.maxVariants,
+        checkBits: opts.checkBits,
+      });
+    }
+    return new IdMix(opts);
   }
 
-  /** @param {...import('./typed_value.js').TypedValue} values */
+  /** @param {object} opts */
+  static create(opts = {}) {
+    const m = new IdMix({});
+    if (opts.idx != null) {
+      if (!(opts.idx instanceof Idx)) throw new Error('idx cannot be nil');
+      m.idx = opts.idx;
+    }
+    if (opts.codec != null) {
+      if (!opts.codec) throw new Error('codec cannot be nil');
+      m.codec = opts.codec;
+    }
+    if (opts.alphabet != null) {
+      m.codec = RadixCodec.create(opts.alphabet);
+    }
+    return m;
+  }
+
+  /** @param {Idx} idx */
+  static withIdx(idx) {
+    return { idx };
+  }
+
+  /** @param {import('./codec.js').Codec} codec */
+  static withCodec(codec) {
+    if (!codec) throw new Error('codec cannot be nil');
+    return { codec };
+  }
+
+  /** @param {string} alphabet */
+  static withAlphabet(alphabet) {
+    return { alphabet };
+  }
+
+  getIdx() { return this.idx; }
+  getCodec() { return this.codec; }
+
+  /** @param {...unknown} values */
   encode(...values) {
     if (!values.length) throw new Error('at least one value is required');
-    if (values.length > this.maxObjects) throw new Error(`too many objects: ${values.length}`);
-    const variantId = Math.floor(Math.random() * this.maxVariants);
-    const data = xidCodec.encodeBinary(this, values, variantId);
-    return this.radix.encodeBytes(data);
+    const variantId = Math.floor(Math.random() * this.idx.maxVariants);
+    const data = this.encodeBinary(values, variantId);
+    return this.codec.encode(data);
   }
 
-  /** @param {string} s @returns {import('./typed_value.js').TypedValue[]} */
+  /** @param {string} s */
   decode(s) {
-    const data = this.radix.decodeBytes(s);
-    return xidCodec.decodeBinary(this, data);
+    const data = this.codec.decode(s);
+    return this.idx.decode(data);
   }
 
-  _finalizeLayout() {
-    const variantBits = this.maxVariants <= 1 ? 1 : bitLen(this.maxVariants - 1);
-    const countBits = this.maxObjects <= 1 ? 1 : bitLen(this.maxObjects);
-    const total = this.checkBits + countBits + variantBits;
-    if (total > 16) throw new Error(`header layout exceeds 16 bits: ${total}`);
-    this.countBits = countBits;
-    this.variantBits = variantBits;
-    this.checkMask = (1 << this.checkBits) - 1;
-    this.countMask = ((1 << countBits) - 1) << this.checkBits;
-    this.variantMask = ((1 << variantBits) - 1) << (this.checkBits + countBits);
-    this.countShift = this.checkBits;
-    this.variantShift = this.checkBits + countBits;
+  /** @param {number} variantID @param {...unknown} values */
+  encodeWithVariant(variantID, ...values) {
+    const data = this.encodeBinary(values, variantID);
+    return this.codec.encode(data);
   }
-}
 
-function bitLen(n) {
-  if (n <= 0) return 1;
-  return 32 - Math.clz32(n);
+  /** @param {unknown[]} values @param {number} variantID */
+  encodeBinary(values, variantID) {
+    const objects = normalizeObjects(values);
+    return this.idx.encodeBinary(objects, variantID);
+  }
 }

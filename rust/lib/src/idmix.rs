@@ -1,30 +1,21 @@
+use std::sync::Arc;
+
 use rand::Rng;
 
 use crate::alphabet::RadixCodec;
+use crate::codec::{self, Codec};
 use crate::error::IdMixError;
-use crate::typed_value::{materialize_values, normalize_values, Value};
-use crate::xid_codec::{decode_binary, encode_binary};
+use crate::idx_codec::Idx;
+use crate::number::normalize_objects;
+use crate::typed_value::Value;
 
 pub const DEFAULT_ALPHABET: &str =
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-const DEFAULT_MAX_OBJECTS: usize = 511;
-const DEFAULT_MAX_VARIANTS: usize = 32;
-const DEFAULT_CHECK_BITS: u32 = 2;
-
-/// XID v1.1 编解码器。
+/// IdMix combines IDX binary encoding with a pluggable text codec.
 pub struct IdMix {
-    pub(crate) radix: RadixCodec,
-    pub(crate) max_objects: usize,
-    pub(crate) max_variants: usize,
-    pub(crate) check_bits: u32,
-    pub(crate) count_bits: u32,
-    pub(crate) variant_bits: u32,
-    pub(crate) check_mask: u16,
-    pub(crate) count_mask: u16,
-    pub(crate) variant_mask: u16,
-    pub(crate) count_shift: u16,
-    pub(crate) variant_shift: u16,
+    idx: Idx,
+    codec: Arc<dyn Codec>,
 }
 
 impl IdMix {
@@ -36,133 +27,75 @@ impl IdMix {
         IdMixBuilder::default()
     }
 
+    pub fn idx(&self) -> &Idx {
+        &self.idx
+    }
+
+    pub fn codec(&self) -> &dyn Codec {
+        self.codec.as_ref()
+    }
+
     pub fn encode(&self, values: &[Value]) -> Result<String, IdMixError> {
         if values.is_empty() {
             return Err(IdMixError::msg("at least one value is required"));
         }
-        if values.len() > self.max_objects {
-            return Err(IdMixError::msg(format!(
-                "too many objects: {} (max {})",
-                values.len(),
-                self.max_objects
-            )));
-        }
-        let typed = normalize_values(values)?;
-        let variant_id = rand::thread_rng().gen_range(0..self.max_variants as i32);
-        let data = encode_binary(self, &typed, variant_id)?;
-        self.radix.encode_bytes(&data)
+        let variant_id = rand::thread_rng().gen_range(0..self.idx.max_variants as i32);
+        self.encode_with_variant(variant_id, values)
+    }
+
+    pub fn encode_with_variant(&self, variant_id: i32, values: &[Value]) -> Result<String, IdMixError> {
+        let data = self.encode_binary(variant_id, values)?;
+        self.codec.encode(&data)
     }
 
     pub fn decode(&self, s: &str) -> Result<Vec<Value>, IdMixError> {
-        let data = self.radix.decode_bytes(s)?;
-        let typed = decode_binary(self, &data)?;
-        materialize_values(&typed)
+        let data = self.codec.decode(s)?;
+        self.idx.decode(&data)
     }
-}
 
-pub struct IdMixBuilder {
-    alphabet: String,
-    max_objects: usize,
-    max_variants: usize,
-    check_bits: u32,
-}
-
-impl Default for IdMixBuilder {
-    fn default() -> Self {
-        Self {
-            alphabet: DEFAULT_ALPHABET.to_string(),
-            max_objects: DEFAULT_MAX_OBJECTS,
-            max_variants: DEFAULT_MAX_VARIANTS,
-            check_bits: DEFAULT_CHECK_BITS,
+    pub(crate) fn encode_binary(&self, variant_id: i32, values: &[Value]) -> Result<Vec<u8>, IdMixError> {
+        if values.is_empty() {
+            return Err(IdMixError::msg("at least one value is required"));
         }
+        let objects = normalize_objects(values)?;
+        self.idx.encode_binary(&objects, variant_id)
     }
+}
+
+#[derive(Default)]
+pub struct IdMixBuilder {
+    idx: Option<Idx>,
+    codec: Option<Arc<dyn Codec>>,
+    alphabet: Option<String>,
 }
 
 impl IdMixBuilder {
+    pub fn idx(mut self, idx: Idx) -> Self {
+        self.idx = Some(idx);
+        self
+    }
+
+    pub fn codec(mut self, codec: Arc<dyn Codec>) -> Self {
+        self.codec = Some(codec);
+        self.alphabet = None;
+        self
+    }
+
     pub fn alphabet(mut self, alphabet: impl Into<String>) -> Self {
-        self.alphabet = alphabet.into();
-        self
-    }
-
-    pub fn max_objects(mut self, n: usize) -> Self {
-        self.max_objects = n;
-        self
-    }
-
-    pub fn max_variants(mut self, n: usize) -> Self {
-        self.max_variants = n;
-        self
-    }
-
-    pub fn check_bits(mut self, n: u32) -> Self {
-        self.check_bits = n;
+        self.alphabet = Some(alphabet.into());
+        self.codec = None;
         self
     }
 
     pub fn build(self) -> Result<IdMix, IdMixError> {
-        if self.max_objects < 1 {
-            return Err(IdMixError::msg("maxObjects must be at least 1"));
-        }
-        if self.max_variants < 1 {
-            return Err(IdMixError::msg("maxVariants must be at least 1"));
-        }
-        if !(1..=8).contains(&self.check_bits) {
-            return Err(IdMixError::msg("checkBits must be between 1 and 8"));
-        }
-        let radix = RadixCodec::new(&self.alphabet)?;
-        let mut m = IdMix {
-            radix,
-            max_objects: self.max_objects,
-            max_variants: self.max_variants,
-            check_bits: self.check_bits,
-            count_bits: 0,
-            variant_bits: 0,
-            check_mask: 0,
-            count_mask: 0,
-            variant_mask: 0,
-            count_shift: 0,
-            variant_shift: 0,
+        let idx = self.idx.unwrap_or_default();
+        let codec: Arc<dyn Codec> = match (self.codec, self.alphabet) {
+            (Some(c), _) => c,
+            (None, Some(alphabet)) => Arc::new(RadixCodec::new(&alphabet)?),
+            (None, None) => Arc::new(RadixCodec::new(DEFAULT_ALPHABET)?),
         };
-        m.finalize_layout()?;
-        Ok(m)
+        Ok(IdMix { idx, codec })
     }
 }
 
-impl IdMix {
-    fn finalize_layout(&mut self) -> Result<(), IdMixError> {
-        let variant_bits = if self.max_variants <= 1 {
-            1
-        } else {
-            bit_len((self.max_variants - 1) as u32)
-        };
-        let count_bits = if self.max_objects <= 1 {
-            1
-        } else {
-            bit_len(self.max_objects as u32)
-        };
-        let total = self.check_bits + count_bits + variant_bits;
-        if total > 16 {
-            return Err(IdMixError::msg(format!(
-                "checkBits({}) + countBits({}) + variantBits({}) = {total} exceeds 16-bit header",
-                self.check_bits, count_bits, variant_bits
-            )));
-        }
-        self.count_bits = count_bits;
-        self.variant_bits = variant_bits;
-        self.check_mask = ((1u16 << self.check_bits) - 1) as u16;
-        self.count_mask = (((1u16 << count_bits) - 1) << self.check_bits) as u16;
-        self.variant_mask =
-            (((1u16 << variant_bits) - 1) << (self.check_bits + count_bits)) as u16;
-        self.count_shift = self.check_bits as u16;
-        self.variant_shift = (self.check_bits + count_bits) as u16;
-        Ok(())
-    }
-}
-
-fn bit_len(n: u32) -> u32 {
-    if n == 0 {
-        1
-    } else {
-        32 - n.leading_zeros()
-    }
-}
+pub use codec::{encode_bytes, decode_string, Base64Codec, FuncCodec};

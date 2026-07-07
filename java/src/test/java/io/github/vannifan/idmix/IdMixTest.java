@@ -4,18 +4,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class IdMixTest {
-
-    private static final long EXTREME_UINT32_MAX = 4294967295L;
-    private static final int EXTREME_INT32_MIN = -2147483648;
-    private static final long EXTREME_INT64_MIN = Long.MIN_VALUE;
-    private static final long EXTREME_INT64_MAX = Long.MAX_VALUE;
-    private static final long EXTREME_UINT64_MAX_BITS = -1L;
 
     private static String hex(byte[] b) {
         if (b == null || b.length == 0) return "(empty)";
@@ -30,55 +23,57 @@ class IdMixTest {
     @Test
     @DisplayName("spec example binary block variant=0")
     void specExampleBinary() {
-        IdMix m = IdMix.newDefault();
-        List<TypedValue> typed = List.of(TypedValue.u16(5), TypedValue.i64(-1), TypedValue.u32(40));
-        byte[] data = XidCodec.encodeBinary(m, typed, 0);
-        byte[] want = new byte[]{0x0F, 0x00, 0x22, 0x47, (byte) 0xB5, 0x1F};
+        Idx idx = Idx.create();
+        byte[] data = idx.encodeWithVariant(0, TypedValue.u16(5), TypedValue.i64(-1), TypedValue.u32(40));
+        byte[] want = new byte[]{(byte) 0x80, 0x03, 0x22, 0x47, (byte) 0xB5, 0x1F};
         assertArrayEquals(want, data);
     }
 
     @Test
     @DisplayName("round trip u16(5), i64(-1), u32(40)")
     void roundTripBasic() {
-        IdMix m = IdMix.newDefault();
+        IdMix m = IdMix.create();
         String encoded = m.encode(TypedValue.u16(5), TypedValue.i64(-1), TypedValue.u32(40));
-        List<TypedValue> decoded = m.decode(encoded);
-        assertEquals(TypedValue.u16(5), decoded.get(0));
-        assertEquals(TypedValue.i64(-1), decoded.get(1));
-        assertEquals(TypedValue.u32(40), decoded.get(2));
+        Object[] decoded = m.decode(encoded);
+        assertEquals(3, decoded.length);
+        CrossLanguageFixtures.assertValueEquals(
+                CrossLanguageFixtures.CrossLangValue.integer(1, 5), decoded[0], "u16");
+        CrossLanguageFixtures.assertValueEquals(
+                CrossLanguageFixtures.CrossLangValue.integer(7, -1), decoded[1], "i64");
+        CrossLanguageFixtures.assertValueEquals(
+                CrossLanguageFixtures.CrossLangValue.integer(2, 40), decoded[2], "u32");
     }
 
     @Test
     @DisplayName("round trip u32(2000000000)")
     void roundTripUint32Large() {
-        IdMix m = IdMix.newDefault();
-        List<TypedValue> out = List.of(m.decode(m.encode(TypedValue.u32(2_000_000_000L))).get(0));
-        assertEquals(2_000_000_000L, out.get(0).val);
+        IdMix m = IdMix.create();
+        Object[] out = m.decode(m.encode(TypedValue.u32(2_000_000_000L)));
+        assertEquals(2_000_000_000L, ((TypedValue) out[0]).val);
     }
 
     @Test
     @DisplayName("custom alphabet abcd")
     void customAlphabet() {
-        IdMix m = new IdMix("abcd");
-        List<TypedValue> decoded = m.decode(m.encode(
-                TypedValue.u16(100), TypedValue.i32(-10), TypedValue.u8(3)));
-        assertEquals(3, decoded.size());
+        IdMix m = IdMix.create(new IdMix.IdMixBuilder().withAlphabet("abcd"));
+        Object[] decoded = m.decode(m.encode(TypedValue.u16(100), TypedValue.i32(-10), TypedValue.u8(3)));
+        assertEquals(3, decoded.length);
     }
 
     @Test
     @DisplayName("checksum mismatch rejects decode")
     void checksumRejects() {
-        IdMix m = IdMix.newDefault();
-        byte[] data = XidCodec.encodeBinary(m, List.of(TypedValue.u32(1)), 0);
-        data[2] ^= 0x01;
-        String tampered = m.getRadix().encodeBytes(data);
+        IdMix m = IdMix.create();
+        byte[] data = m.getIdx().encodeWithVariant(0, TypedValue.u32(1));
+        data[0] ^= 0x01;
+        String tampered = m.getCodec().encode(data);
         assertThrows(IllegalArgumentException.class, () -> m.decode(tampered));
     }
 
     @Test
     @DisplayName("variant polymorphism")
     void multipleEncodingsDiffer() {
-        IdMix m = IdMix.newDefault();
+        IdMix m = IdMix.create();
         Set<String> seen = new HashSet<>();
         for (int i = 0; i < 50; i++) seen.add(m.encode(TypedValue.u32(42)));
         assertTrue(seen.size() >= 2);
@@ -87,24 +82,46 @@ class IdMixTest {
     @Test
     @DisplayName("extreme values round trip")
     void extremeValuesRoundTrip() {
-        IdMix m = IdMix.newDefault();
-        assertEquals(EXTREME_UINT32_MAX, m.decode(m.encode(TypedValue.u32(EXTREME_UINT32_MAX))).get(0).val);
-        assertEquals(EXTREME_INT32_MIN, m.decode(m.encode(TypedValue.i32(EXTREME_INT32_MIN))).get(0).val);
-        assertEquals(EXTREME_INT64_MIN, m.decode(m.encode(TypedValue.i64(EXTREME_INT64_MIN))).get(0).val);
-        assertEquals(EXTREME_INT64_MAX, m.decode(m.encode(TypedValue.i64(EXTREME_INT64_MAX))).get(0).val);
-        assertEquals(EXTREME_UINT64_MAX_BITS, m.decode(m.encode(TypedValue.u64("18446744073709551615"))).get(0).val);
+        IdMix m = IdMix.create();
+        assertEquals(4294967295L, ((TypedValue) m.decode(m.encode(TypedValue.u32(4294967295L)))[0]).val);
+        assertEquals(-2147483648, ((TypedValue) m.decode(m.encode(TypedValue.i32(-2147483648)))[0]).val);
+        assertEquals(Long.MIN_VALUE, ((TypedValue) m.decode(m.encode(TypedValue.i64(Long.MIN_VALUE)))[0]).val);
+        assertEquals(Long.MAX_VALUE, ((TypedValue) m.decode(m.encode(TypedValue.i64(Long.MAX_VALUE)))[0]).val);
+        assertEquals(-1L, ((TypedValue) m.decode(m.encode(TypedValue.u64("18446744073709551615")))[0]).val);
     }
 
     @Test
     @DisplayName("cross-language vectors")
     void crossLanguageVectors() {
-        IdMix m = new IdMix(CrossLanguageFixtures.ALPHABET);
+        IdMix m = IdMix.create(new IdMix.IdMixBuilder().withAlphabet(CrossLanguageFixtures.ALPHABET));
         for (CrossLanguageFixtures.Case c : CrossLanguageFixtures.cases()) {
-            List<TypedValue> decoded = m.decode(c.encoded());
-            assertEquals(c.values().size(), decoded.size(), c.name());
+            Object[] decoded = m.decode(c.encoded());
+            assertEquals(c.values().size(), decoded.length, c.name());
             for (int i = 0; i < c.values().size(); i++) {
-                assertEquals(c.values().get(i), decoded.get(i), c.name() + "[" + i + "]");
+                CrossLanguageFixtures.assertValueEquals(c.values().get(i), decoded[i], c.name() + "[" + i + "]");
             }
         }
+    }
+
+    @Test
+    @DisplayName("cross-language encode deterministic")
+    void crossLanguageEncodeDeterministic() {
+        IdMix m = IdMix.create(new IdMix.IdMixBuilder().withAlphabet(CrossLanguageFixtures.ALPHABET));
+        for (CrossLanguageFixtures.Case c : CrossLanguageFixtures.cases()) {
+            Object[] inputs = c.values().stream().map(CrossLanguageFixtures::materialize).toArray();
+            String enc = m.encodeWithVariant(c.variant(), inputs);
+            assertEquals(c.encoded(), enc, c.name());
+        }
+    }
+
+    @Test
+    @DisplayName("string round trip")
+    void stringRoundTrip() {
+        IdMix m = IdMix.create();
+        Object[] decoded = m.decode(m.encodeWithVariant(0, "hello", TypedValue.u16(5), "世界"));
+        assertEquals("hello", decoded[0]);
+        CrossLanguageFixtures.assertValueEquals(
+                CrossLanguageFixtures.CrossLangValue.integer(1, 5), decoded[1], "u16");
+        assertEquals("世界", decoded[2]);
     }
 }

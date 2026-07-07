@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
-project(idmix_c VERSION 0.2.0 LANGUAGES C)
+project(idmix_c VERSION 0.4.0 LANGUAGES C)
 
-add_library(idmix_c STATIC src/idmix.c)
+add_library(idmix_c STATIC
+    src/idx.c
+    src/codec.c
+    src/idmix.c
+)
 add_library(idmix::c ALIAS idmix_c)
 
 target_include_directories(idmix_c PUBLIC
@@ -20,7 +24,7 @@ install(TARGETS idmix_c EXPORT idmix_cTargets
     LIBRARY DESTINATION lib
     RUNTIME DESTINATION bin
 )
-install(FILES include/idmix.h DESTINATION include)
+install(FILES include/idmix.h include/idx.h include/codec.h DESTINATION include)
 install(EXPORT idmix_cTargets
     FILE idmix_cConfig.cmake
     NAMESPACE idmix::

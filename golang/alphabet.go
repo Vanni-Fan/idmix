@@ -1,8 +1,7 @@
-// alphabet.go 实现 XID 的文本层：将二进制块编码为自定义进制字符串，反之亦然。
+// alphabet.go 实现基于自定义字符表的 RadixCodec（默认 idmix 文本层）。
 //
 // 编码策略：在原始数据前附加 2 字节大端长度前缀，整体视为一个大整数，
 // 再按自定义字符表做进制转换（类似无填充的 Base-N）。
-// 解码时通过尝试 0/1 字节前导填充来恢复长度前缀，消除 big.Int 去前导零的影响。
 package idmix
 
 import (
@@ -12,24 +11,22 @@ import (
 	"math/big"
 )
 
-// radixCodec 封装自定义进制（Base-N）编解码逻辑。
-type radixCodec struct {
-	base       int            // 进制基数，等于字符表长度
-	chars      []rune         // 字符表，索引 i 对应数字 i
-	fromCustom map[rune]int   // 字符 → 数字索引，用于解码查表
+var errNilCodecFunc = errors.New("codec function is nil")
+
+// RadixCodec 使用自定义字符表（Base-N）的二进制↔文本编解码器。
+type RadixCodec struct {
+	base       int
+	chars      []rune
+	fromCustom map[rune]int
 }
 
-// newRadixCodec 根据字符表创建进制编解码器。
-//
-// 校验规则：
-//   - 至少 2 个字符（进制 ≥ 2）
-//   - 字符不可重复
-func newRadixCodec(alphabet string) (*radixCodec, error) {
+// NewRadixCodec 根据字符表创建 RadixCodec。
+func NewRadixCodec(alphabet string) (*RadixCodec, error) {
 	runes := []rune(alphabet)
 	if len(runes) < 2 {
 		return nil, errors.New("alphabet must have at least 2 unique characters")
 	}
-	rc := &radixCodec{
+	rc := &RadixCodec{
 		base:       len(runes),
 		chars:      runes,
 		fromCustom: make(map[rune]int, len(runes)),
@@ -43,15 +40,17 @@ func newRadixCodec(alphabet string) (*radixCodec, error) {
 	return rc, nil
 }
 
-// encodeBytes 将二进制块编码为自定义进制字符串。
-//
-// 步骤：
-//  1. 构造 [2字节大端长度 | 原始数据] 的包装缓冲区
-//  2. 将包装缓冲区视为无符号大整数
-//  3. 反复除基取余，映射到 chars 表，得到最终字符串
-//
-// 空输入编码为字符表第一个字符（表示数值 0）。
-func (rc *radixCodec) encodeBytes(data []byte) (string, error) {
+// Alphabet 返回字符表字符串。
+func (rc *RadixCodec) Alphabet() string {
+	return string(rc.chars)
+}
+
+// Base 返回进制基数。
+func (rc *RadixCodec) Base() int {
+	return rc.base
+}
+
+func (rc *RadixCodec) Encode(data []byte) (string, error) {
 	if len(data) == 0 {
 		return string(rc.chars[0]), nil
 	}
@@ -62,11 +61,7 @@ func (rc *radixCodec) encodeBytes(data []byte) (string, error) {
 	return rc.intToString(n), nil
 }
 
-// decodeBytes 将自定义进制字符串还原为原始二进制块。
-//
-// 由于 big.Int 会去掉前导零，解码时需尝试 0 或 1 字节的前导填充，
-// 使得 [长度前缀(2B) | 数据] 的总长度与长度字段一致。
-func (rc *radixCodec) decodeBytes(s string) ([]byte, error) {
+func (rc *RadixCodec) Decode(s string) ([]byte, error) {
 	if s == "" {
 		return nil, errors.New("empty string")
 	}
@@ -75,7 +70,6 @@ func (rc *radixCodec) decodeBytes(s string) ([]byte, error) {
 		return nil, err
 	}
 	raw := n.Bytes()
-	// pad=0：无前导零；pad=1：补 1 字节前导零（应对长度前缀高字节为 0 的情况）
 	for pad := 0; pad <= 1; pad++ {
 		buf := make([]byte, pad+len(raw))
 		copy(buf[pad:], raw)
@@ -91,8 +85,7 @@ func (rc *radixCodec) decodeBytes(s string) ([]byte, error) {
 	return nil, errors.New("invalid encoded data length")
 }
 
-// intToString 将大整数按自定义进制转为字符串（高位在前）。
-func (rc *radixCodec) intToString(n *big.Int) string {
+func (rc *RadixCodec) intToString(n *big.Int) string {
 	if n.Sign() == 0 {
 		return string(rc.chars[0])
 	}
@@ -104,15 +97,13 @@ func (rc *radixCodec) intToString(n *big.Int) string {
 		n.DivMod(n, base, rem)
 		chars = append(chars, rc.chars[rem.Int64()])
 	}
-	// 余数序列是低位在前，需反转为高位在前
 	for i, j := 0, len(chars)-1; i < j; i, j = i+1, j-1 {
 		chars[i], chars[j] = chars[j], chars[i]
 	}
 	return string(chars)
 }
 
-// stringToInt 将自定义进制字符串解析为大整数。
-func (rc *radixCodec) stringToInt(s string) (*big.Int, error) {
+func (rc *RadixCodec) stringToInt(s string) (*big.Int, error) {
 	n := big.NewInt(0)
 	base := big.NewInt(int64(rc.base))
 	for _, r := range s {

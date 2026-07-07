@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vanni-idmix"
-version = "0.3.0"
-description = "XID v1.1: encode typed integer sequences to short strings"
+version = "0.4.0"
+description = "IDX v1.2: encode integer/string sequences to short strings"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [{ name = "Vanni", email = "web.cn@msn.com" }]

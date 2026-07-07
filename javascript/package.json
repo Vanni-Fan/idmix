@@ -1,19 +1,21 @@
 {
   "name": "@vanni.fan/idmix",
-  "version": "0.3.0",
-  "description": "XID v1.1: encode typed integer sequences to short strings",
+  "version": "0.4.0",
+  "description": "IDX v1.2: encode typed integer and short string sequences to compact text",
   "type": "module",
-  "main": "src/idmix.js",
+  "main": "src/index.js",
   "exports": {
-    ".": "./src/idmix.js"
+    ".": "./src/index.js"
   },
   "files": [
-    "src"
+    "src",
+    "README.md",
+    "README_en.md"
   ],
   "scripts": {
-    "test": "node --test test/test_idmix.js"
+    "test": "node --test test/test_idmix.js test/test_idx.js"
   },
-  "keywords": ["xid", "idmix", "encoding", "short-id"],
+  "keywords": ["idx", "idmix", "encoding", "short-id"],
   "license": "Apache-2.0",
   "author": "Vanni",
   "repository": {
@@ -23,5 +25,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

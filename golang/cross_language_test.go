@@ -22,20 +22,27 @@ func TestCrossLanguageVectors(t *testing.T) {
 				t.Fatalf("count %d, want %d", len(list), len(c.Values))
 			}
 			for i, want := range c.Values {
+				if want.Str != "" {
+					if list[i].(string) != want.Str {
+						t.Fatalf("[%d] got str=%q, want %q", i, list[i], want.Str)
+					}
+					t.Logf("  [%d] str=%q OK", i, want.Str)
+					continue
+				}
 				wantVal, err := parseCrossLangVal(uint8(want.OType), want.Val)
 				if err != nil {
 					t.Fatalf("[%d] parse val: %v", i, err)
 				}
-				gotTV, err := valueFromAny(list[i])
+				gotObj, err := objectFromAny(list[i])
 				if err != nil {
 					t.Fatalf("[%d] normalize decoded: %v", i, err)
 				}
-				wantTV := typedValue{otype: uint8(want.OType), val: wantVal}
-				if gotTV != wantTV {
+				wantObj := dataObject{otype: uint8(want.OType), val: wantVal}
+				if gotObj.isString || gotObj.otype != wantObj.otype || gotObj.val != wantObj.val {
 					t.Fatalf("[%d] got otype=%d val=%d, want otype=%d val=%d",
-						i, gotTV.otype, gotTV.val, wantTV.otype, wantTV.val)
+						i, gotObj.otype, gotObj.val, wantObj.otype, wantObj.val)
 				}
-				t.Logf("  [%d] otype=%d val=%d OK", i, gotTV.otype, gotTV.val)
+				t.Logf("  [%d] otype=%d val=%d OK", i, gotObj.otype, gotObj.val)
 			}
 			t.Logf("encoded=%q len=%d", c.Encoded, len(c.Encoded))
 		})
@@ -52,21 +59,17 @@ func TestCrossLanguageEncodeDeterministic(t *testing.T) {
 		t.Run(c.Name, func(t *testing.T) {
 			var inputs []any
 			for _, v := range c.Values {
+				if v.Str != "" {
+					inputs = append(inputs, v.Str)
+					continue
+				}
 				val, err := parseCrossLangVal(uint8(v.OType), v.Val)
 				if err != nil {
 					t.Fatal(err)
 				}
 				inputs = append(inputs, materializeFromOtypeVal(uint8(v.OType), val))
 			}
-			typed, err := normalizeAny(inputs)
-			if err != nil {
-				t.Fatal(err)
-			}
-			data, err := m.encodeBinary(typed, c.Variant)
-			if err != nil {
-				t.Fatal(err)
-			}
-			enc, err := m.radix.encodeBytes(data)
+			enc, err := m.EncodeWithVariant(c.Variant, inputs...)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -2,96 +2,74 @@
 namespace Vanni\Idmix;
 
 /**
- * XID v1.1 编解码器主入口。
+ * IDX v1.2：组合 IDX 二进制编解码与可插拔文本 Codec。
  */
-class IdMix
+final class IdMix
 {
     public const DEFAULT_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
-    private RadixCodec $radix;
-    public int $maxObjects;
-    public int $maxVariants;
-    public int $checkBits;
-    public int $countBits;
-    public int $variantBits;
-    public int $checkMask;
-    public int $countMask;
-    public int $variantMask;
-    public int $countShift;
-    public int $variantShift;
+    private Idx $idx;
+    private Codec $codec;
 
-    private function __construct(
-        RadixCodec $radix,
-        int $maxObjects = 511,
-        int $maxVariants = 32,
-        int $checkBits = 2,
-    ) {
-        $this->radix = $radix;
-        $this->maxObjects = $maxObjects;
-        $this->maxVariants = $maxVariants;
-        $this->checkBits = $checkBits;
-        $this->finalizeLayout();
+    public function __construct(?Idx $idx = null, ?Codec $codec = null)
+    {
+        $this->idx = $idx ?? Idx::new();
+        $this->codec = $codec ?? new RadixCodec(self::DEFAULT_ALPHABET);
     }
 
     public static function new(?string $alphabet = null): self
     {
-        $alphabet ??= self::DEFAULT_ALPHABET;
-        return new self(new RadixCodec($alphabet));
+        $codec = $alphabet !== null
+            ? new RadixCodec($alphabet)
+            : new RadixCodec(self::DEFAULT_ALPHABET);
+        return new self(null, $codec);
     }
 
     public static function withAlphabet(string $alphabet): self
     {
-        return self::new($alphabet);
+        return new self(null, new RadixCodec($alphabet));
     }
 
-    /** @param TypedValue ...$values */
-    public function encode(TypedValue ...$values): string
+    public static function create(?Idx $idx = null, ?Codec $codec = null): self
+    {
+        return new self($idx, $codec);
+    }
+
+    public function idx(): Idx
+    {
+        return $this->idx;
+    }
+
+    public function codec(): Codec
+    {
+        return $this->codec;
+    }
+
+    /** @param mixed ...$values */
+    public function encode(mixed ...$values): string
     {
         if (count($values) < 1) {
             throw new \InvalidArgumentException('at least one value is required');
         }
-        if (count($values) > $this->maxObjects) {
-            throw new \InvalidArgumentException('too many objects');
-        }
-        $variantId = random_int(0, $this->maxVariants - 1);
-        $data = XidCodec::encodeBinary($this, $values, $variantId);
-        return $this->radix->encodeBytes($data);
+        $variantId = random_int(0, $this->idx->maxVariants - 1);
+        return $this->codec->encode($this->encodeBinary($values, $variantId));
     }
 
-    /** @return TypedValue[] */
+    /** @param mixed ...$values */
+    public function encodeWithVariant(int $variantId, mixed ...$values): string
+    {
+        return $this->codec->encode($this->encodeBinary($values, $variantId));
+    }
+
+    /** @return array<int, TypedValue|string> */
     public function decode(string $s): array
     {
-        $data = $this->radix->decodeBytes($s);
-        return XidCodec::decodeBinary($this, $data);
+        return $this->idx->decode($this->codec->decode($s));
     }
 
-    private function finalizeLayout(): void
+    /** @param mixed[] $values */
+    public function encodeBinary(array $values, int $variantId): string
     {
-        $variantBits = $this->maxVariants <= 1 ? 1 : self::bitLen($this->maxVariants - 1);
-        $countBits = $this->maxObjects <= 1 ? 1 : self::bitLen($this->maxObjects);
-        $total = $this->checkBits + $countBits + $variantBits;
-        if ($total > 16) {
-            throw new \InvalidArgumentException("header layout exceeds 16 bits: $total");
-        }
-        $this->countBits = $countBits;
-        $this->variantBits = $variantBits;
-        $this->checkMask = (1 << $this->checkBits) - 1;
-        $this->countMask = ((1 << $countBits) - 1) << $this->checkBits;
-        $this->variantMask = ((1 << $variantBits) - 1) << ($this->checkBits + $countBits);
-        $this->countShift = $this->checkBits;
-        $this->variantShift = $this->checkBits + $countBits;
-    }
-
-    private static function bitLen(int $n): int
-    {
-        if ($n <= 0) {
-            return 1;
-        }
-        $bits = 0;
-        while ($n > 0) {
-            $n >>= 1;
-            $bits++;
-        }
-        return $bits;
+        return $this->idx->encodeBinary(Number::normalizeObjects($values), $variantId);
     }
 }

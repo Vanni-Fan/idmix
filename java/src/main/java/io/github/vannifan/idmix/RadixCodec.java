@@ -6,8 +6,8 @@ import java.nio.ByteOrder;
 import java.util.HashMap;
 import java.util.Map;
 
-/** Custom radix text layer codec. */
-public final class RadixCodec {
+/** Custom radix text layer codec (default idmix text layer). */
+public final class RadixCodec implements ICodec {
     private final int base;
     private final String chars;
     private final Map<Character, Integer> fromCustom;
@@ -28,7 +28,11 @@ public final class RadixCodec {
         }
     }
 
-    public String encodeBytes(byte[] data) {
+    public String getAlphabet() { return chars; }
+    public int getBase() { return base; }
+
+    @Override
+    public String encode(byte[] data) {
         if (data.length == 0) return String.valueOf(chars.charAt(0));
         ByteBuffer buf = ByteBuffer.allocate(2 + data.length);
         buf.order(ByteOrder.BIG_ENDIAN);
@@ -38,7 +42,8 @@ public final class RadixCodec {
         return intToString(n);
     }
 
-    public byte[] decodeBytes(String s) {
+    @Override
+    public byte[] decode(String s) {
         if (s == null || s.isEmpty()) throw new IllegalArgumentException("empty string");
         BigInteger n = stringToInt(s);
         byte[] raw = n.toByteArray();
@@ -83,7 +88,4 @@ public final class RadixCodec {
         }
         return n;
     }
-
-    public int getBase() { return base; }
-    public String getChars() { return chars; }
 }

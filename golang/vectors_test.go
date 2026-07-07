@@ -3,33 +3,24 @@ package idmix
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
 )
 
-// 极值常量，与各语言测试共享语义。
 const (
 	extremeUint32Max = uint32(4294967295)
 	extremeInt32Min  = int32(-2147483648)
 	extremeInt64Min  = int64(-9223372036854775808)
 	extremeInt64Max  = int64(9223372036854775807)
-	// extremeUint64Max 为 uint64 全范围最大值。
 	extremeUint64Max = uint64(18446744073709551615)
 )
 
 type crossLangValue struct {
 	OType int    `json:"otype"`
 	Val   string `json:"val"`
-}
-
-func formatCrossLangVal(otype uint8, v int64) string {
-	if isUnsigned(otype) {
-		return fmt.Sprintf("%d", uint64(v))
-	}
-	return fmt.Sprintf("%d", v)
+	Str   string `json:"str,omitempty"`
 }
 
 func parseCrossLangVal(otype uint8, s string) (int64, error) {
@@ -72,6 +63,7 @@ func extremeValueCases() []struct {
 		},
 		{"embedded_small", []any{uint8(15), int8(-16), uint16(0), int16(-1)}},
 		{"access_key", []any{uint32(1001), uint64(1690000000), uint8(3)}},
+		{"string_example", []any{"hello", uint16(5), "世界"}},
 	}
 }
 
@@ -83,21 +75,29 @@ func buildCrossLanguageVectors(t *testing.T) crossLangFile {
 	}
 	out := crossLangFile{Alphabet: DefaultAlphabet}
 	for _, c := range extremeValueCases() {
-		typed, err := normalizeAny(c.vals)
-		if err != nil {
-			t.Fatalf("%s: normalize: %v", c.name, err)
-		}
-		data, err := m.encodeBinary(typed, 0)
+		data, err := m.encodeBinary(c.vals, 0)
 		if err != nil {
 			t.Fatalf("%s: encodeBinary: %v", c.name, err)
 		}
-		enc, err := m.radix.encodeBytes(data)
+		codec, err := NewRadixCodec(DefaultAlphabet)
 		if err != nil {
 			t.Fatalf("%s: radix: %v", c.name, err)
 		}
+		enc, err := EncodeBytes(data, codec)
 		vc := crossLangCase{Name: c.name, Variant: 0, Encoded: enc}
-		for _, tv := range typed {
-			vc.Values = append(vc.Values, crossLangValue{OType: int(tv.otype), Val: formatCrossLangVal(tv.otype, tv.val)})
+		objects, err := normalizeObjects(c.vals)
+		if err != nil {
+			t.Fatalf("%s: normalize: %v", c.name, err)
+		}
+		for _, obj := range objects {
+			if obj.isString {
+				vc.Values = append(vc.Values, crossLangValue{Str: string(obj.str)})
+			} else {
+				vc.Values = append(vc.Values, crossLangValue{
+					OType: int(obj.otype),
+					Val:   formatCrossLangVal(obj.otype, obj.val),
+				})
+			}
 		}
 		out.Cases = append(out.Cases, vc)
 	}
@@ -118,7 +118,6 @@ func loadCrossLanguageVectors(t *testing.T) crossLangFile {
 	return f
 }
 
-// TestGenerateCrossLanguageVectors 在 GENERATE_VECTORS=1 时重写 testdata/cross_language_vectors.json。
 func TestGenerateCrossLanguageVectors(t *testing.T) {
 	if os.Getenv("GENERATE_VECTORS") != "1" {
 		t.Skip("set GENERATE_VECTORS=1 to regenerate testdata/cross_language_vectors.json")

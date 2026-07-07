@@ -18,7 +18,7 @@
           "val": "40"
         }
       ],
-      "encoded": "hYpGvRq6B"
+      "encoded": "ixHjl0FK7"
     },
     {
       "name": "uint32_max",
@@ -29,7 +29,7 @@
           "val": "4294967295"
         }
       ],
-      "encoded": "LwMDzFPIwK"
+      "encoded": "hUdZLNKGa"
     },
     {
       "name": "int32_min",
@@ -40,7 +40,7 @@
           "val": "-2147483648"
         }
       ],
-      "encoded": "LwMH4is20x"
+      "encoded": "hUdElRoHP"
     },
     {
       "name": "int64_min",
@@ -51,7 +51,7 @@
           "val": "-9223372036854775808"
         }
       ],
-      "encoded": "eA3BqyCfeJ73bad1"
+      "encoded": "8B10qg6x0EAf3b"
     },
     {
       "name": "int64_max",
@@ -62,7 +62,7 @@
           "val": "9223372036854775807"
         }
       ],
-      "encoded": "eA3A34tsjcVrPPF6"
+      "encoded": "8B2cU8kbWpQ2RM"
     },
     {
       "name": "uint64_max",
@@ -73,7 +73,7 @@
           "val": "18446744073709551615"
         }
       ],
-      "encoded": "eA3A5uobrwZQuXVc"
+      "encoded": "8B3CPRsv0Owa6S"
     },
     {
       "name": "mixed_extremes",
@@ -96,7 +96,7 @@
           "val": "9223372036854775807"
         }
       ],
-      "encoded": "bTcNSaewCwrxPlc5fGCbq11xnBz120cpBTJ1A6ztNY"
+      "encoded": "bULoRnNZJinEZGKD78wIigIaw6QplS8B0HGNCKO2L6"
     },
     {
       "name": "embedded_small",
@@ -119,7 +119,7 @@
           "val": "-1"
         }
       ],
-      "encoded": "hYI25mckd"
+      "encoded": "ixHorRWmh"
     },
     {
       "name": "access_key",
@@ -138,7 +138,28 @@
           "val": "3"
         }
       ],
-      "encoded": "eB12pBLCoFhaAgPE"
+      "encoded": "eNe8RmcNtYw60Xjc"
+    },
+    {
+      "name": "string_example",
+      "variant": 0,
+      "values": [
+        {
+          "otype": 0,
+          "val": "",
+          "str": "hello"
+        },
+        {
+          "otype": 1,
+          "val": "5"
+        },
+        {
+          "otype": 0,
+          "val": "",
+          "str": "世界"
+        }
+      ],
+      "encoded": "ceOqw5RPaTfgnfXyp7Sdepb"
     }
   ]
 }

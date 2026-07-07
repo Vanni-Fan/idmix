@@ -1,4 +1,4 @@
-"""XID 文本层：自定义进制编解码。"""
+"""基于自定义字符表的 RadixCodec（默认 idmix 文本层）。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import struct
 
 
 class RadixCodec:
-    """将二进制块编码为自定义进制字符串，反之亦然。"""
+    """使用自定义字符表（Base-N）的二进制↔文本编解码器。"""
 
     def __init__(self, alphabet: str) -> None:
         chars = list(alphabet)
@@ -20,16 +20,21 @@ class RadixCodec:
                 raise ValueError(f"alphabet contains duplicate character {ch!r}")
             self._from_custom[ch] = i
 
-    def encode_bytes(self, data: bytes) -> str:
-        """二进制块 → 自定义进制字符串。"""
-        if not data:
+    @classmethod
+    def new(cls, alphabet: str) -> RadixCodec:
+        return cls(alphabet)
+
+    def alphabet(self) -> str:
+        return "".join(self.chars)
+
+    def encode(self, data: bytes) -> str:
+        if len(data) == 0:
             return self.chars[0]
         wrapped = struct.pack(">H", len(data)) + data
         n = int.from_bytes(wrapped, "big")
         return self._int_to_string(n)
 
-    def decode_bytes(self, s: str) -> bytes:
-        """自定义进制字符串 → 二进制块。"""
+    def decode(self, s: str) -> bytes:
         if not s:
             raise ValueError("empty string")
         n = self._string_to_int(s)

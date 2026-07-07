@@ -5,11 +5,12 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { typedValuesEqual, u8, u16, u32, u64, i8, i16, i32, i64 } from '../src/typed_value.js';
+import { materializeFromCrossLang, typedValuesEqual } from '../src/number.js';
 
 const VECTORS_PATH = join(dirname(fileURLToPath(import.meta.url)), '../../testdata/cross_language_vectors.json');
 
-/** @typedef {{ name: string, variant: number, values: { otype: number, val: number }[], encoded: string }} CrossLangCase */
+/** @typedef {{ otype: number, val: string, str?: string }} CrossLangValue */
+/** @typedef {{ name: string, variant: number, values: CrossLangValue[], encoded: string }} CrossLangCase */
 /** @typedef {{ alphabet: string, cases: CrossLangCase[] }} CrossLangFile */
 
 export function loadCrossLanguageVectors() {
@@ -17,21 +18,9 @@ export function loadCrossLanguageVectors() {
   return JSON.parse(readFileSync(VECTORS_PATH, 'utf8'));
 }
 
-/** @param {number} otype @param {string|number} val */
-export function materializeOtypeVal(otype, val) {
-  const s = String(val);
-  const bi = BigInt(s);
-  switch (otype) {
-    case 0: return u8(Number(bi));
-    case 1: return u16(Number(bi));
-    case 2: return u32(Number(bi));
-    case 3: return bi > BigInt(Number.MAX_SAFE_INTEGER) ? u64(bi) : u64(Number(bi));
-    case 4: return i8(Number(bi));
-    case 5: return i16(Number(bi));
-    case 6: return i32(Number(bi));
-    case 7: return (bi < BigInt(Number.MIN_SAFE_INTEGER) || bi > BigInt(Number.MAX_SAFE_INTEGER)) ? i64(bi) : i64(Number(bi));
-    default: throw new Error(`invalid otype ${otype}`);
-  }
+/** @param {CrossLangValue} v */
+export function materializeCrossLangValue(v) {
+  return materializeFromCrossLang(v.otype, v.val, v.str);
 }
 
 export { typedValuesEqual };

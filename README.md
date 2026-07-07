@@ -1,57 +1,84 @@
-# idmix — XID v1.1 自描述整数序列短标识符
+# idmix — IDX v1.2 自描述序列 + 文本混淆
 
-将多个**带类型的整数**编码为短字符串，适用于 access_key、短 ID、令牌等场景。Go、PHP、Rust、Python、JavaScript、Java、C#、VB.NET、C/C++ 多语言实现互通，遵循同一套 [XID v1.1 规范](arithmetic.md)。
+> **English:** [README_en.md](README_en.md)
+
+将多个**带类型的整数**或**短字符串**（≤63 字节）编码为短字符串，适用于 access_key、短 ID、令牌等场景。**C、C++、C#、Go、Java、JavaScript、PHP、Python、Rust** 多语言实现互通，遵循 [IDX v1.2 规范](arithmetic.md)。
+
+## 各语言文档
+
+| 语言 | 中文 | English |
+| --- | --- | --- |
+| Go（参考实现） | [golang/README.md](golang/README.md) | [golang/README_en.md](golang/README_en.md) |
+| Rust | [rust/lib/README.md](rust/lib/README.md) | [rust/lib/README_en.md](rust/lib/README_en.md) |
+| Python | [python/README.md](python/README.md) | [python/README_en.md](python/README_en.md) |
+| JavaScript | [javascript/README.md](javascript/README.md) | [javascript/README_en.md](javascript/README_en.md) |
+| Java | [java/README.md](java/README.md) | [java/README_en.md](java/README_en.md) |
+| C# | [csharp/README.md](csharp/README.md) | [csharp/README_en.md](csharp/README_en.md) |
+| PHP | [php/README.md](php/README.md) | [php/README_en.md](php/README_en.md) |
+| C++ | [cpp/README.md](cpp/README.md) | [cpp/README_en.md](cpp/README_en.md) |
+| C | [c/README.md](c/README.md) | [c/README_en.md](c/README_en.md) |
+
+**两层可独立使用**：
+
+| 层 | API（Go） | 作用 |
+| --- | --- | --- |
+| **IDX** | `NewIdx()` / `Idx.Encode` / `Idx.Decode` | 整数/短字符串 ↔ 自描述二进制 |
+| **Codec** | `EncodeBytes` / `DecodeString` + `Codec` 接口 | 任意二进制 ↔ 文本（可插拔） |
+| **组合** | `IdMix.Encode` / `Decode` | IDX + Codec |
+
+文本层通过 **`Codec` 接口**可插拔：默认 `RadixCodec`（自定义字符表），也可换 `Base64Codec`、或 `FuncCodec` 包装 AES/XOR 等。
+
+也可将 **Protobuf / CBOR / MessagePack** 二进制直接经 `EncodeBytes` 输出混淆文本，替代传统的 `Protobuf + AES + Base64` 路径。
 
 ## 用途
 
-- **类型自描述**：每个整数携带原始类型（`uint8uint64` ~~及~~ `int8int64` 共 8 种 otype），解码时不依赖外部 schema
-- **极致压缩**：0~~15 的正数、-1~~-16 的负数仅占 1 字节；其余按最小补码宽度存储
-- **32 态多态**：同一组数据可生成最多 32 种不同字符串，防猜、规避敏感词
+- **类型自描述**：每个整数携带原始类型（`uint8`~`uint64` / `int8`~`int64` 共 8 种 otype），解码时不依赖外部 schema
+- **短字符串**：扩展模式支持 ≤63 字节的 UTF-8/字节串
+- **极致压缩**：0~15 的正数、-1~-15 的负数仅占 1 字节；**单对象时 header 仅 1 字节**
+- **32 态多态**：同一组数据可生成最多 32 种不同编码（variant 异或混淆）
 - **轻量自校验**：2-bit 全局 XOR 校验，约 75% 的随机篡改可被即时拒绝
-- **自定义字符表**：默认 62 进制（`a-zA-Z0-9`），字符顺序可自定义
+- **文本混淆（idmix 层）**：默认 62 进制字符表，可单独包装任意二进制
 
-## 算法概要（XID v1.1）
-
-编码分两层：
+## 算法概要（IDX v1.2 + idmix）
 
 ```
-整数序列 → [二进制层] → [文本层] → 字符串
+整数/短字符串 → [IDX 二进制层] → [idmix 文本层] → 字符串
+任意二进制    → [idmix 文本层] → 字符串          （跳过 IDX）
 ```
 
-### 1. 二进制层
+### 1. IDX 二进制层
 
-二进制块 = **2 字节 header（小端）** + **数据对象序列**。
+二进制块 = **1 或 2 字节 header** + **数据对象序列**。
 
-**Header 位域（默认配置）**：
+**Header（单对象，1 字节）**：
 
+| 位域 | 宽度 | 含义 |
+| --- | --- | --- |
+| bit[1:0] | 2 | `check` 校验位 |
+| bit[6:2] | 5 | `variant_id`（0~31） |
+| bit7 | 1 | `0` = 单对象 |
 
-| 位域         | 宽度  | 含义                        |
-| ---------- | --- | ------------------------- |
-| bit[1:0]   | 2   | `check` 校验位（全局 XOR 低 2 位） |
-| bit[10:2]  | 9   | `count` 对象个数（0~511）       |
-| bit[15:11] | 5   | `variant_id` 变体 ID（0~31）  |
+**Header（多对象，2 字节）**：字节 0 的 bit7=1，字节 1 为 count（2~255）。
 
+**数据对象**：
 
-**数据对象**（每个整数一个）：
-
-- **内嵌模式（1 字节）**：无符号 0~~15，或有符号 -1~~-16
-- **扩展模式（1+ 字节）**：其余值，最小补码 + 类型标记（`otype` 0~7）
+- **内嵌模式（1 字节）**：小整数 [-15,15]
+- **扩展数字（1+ 字节）**：bit6=0，有符号类型用二补码小端负载（无独立符号位）
+- **扩展字符串（1+ 字节）**：bit6=1，bit5-0 为长度（1~63），后跟原始字节
 
 **变体混淆**：`mask = (variant_id × 0x9D + 0x37) & 0xFF`，对对象区逐字节 XOR（header 不参与）。
 
-**校验**：对整个二进制块逐字节 XOR，低 2 位写入 header。
-
-规范示例 `uint16(5), int64(-1), uint32(40)`（variant=0）的二进制块：
+规范示例 `uint16(5), int64(-1), uint32(40)`（variant=0，三对象）的二进制块：
 
 ```
-0F 00 22 47 B5 1F
+80 03 22 47 B5 1F
 ```
 
 完整协议见 [arithmetic.md](arithmetic.md)。
 
-### 2. 文本层
+### 2. idmix 文本层
 
-在二进制块前附加 2 字节大端长度前缀，整体按**自定义进制**（默认 62 字符表）转为字符串。
+在二进制块前附加 2 字节大端长度前缀，整体按**自定义进制**（默认 62 字符表）转为字符串。可单独用于任意二进制，不限于 IDX 输出。
 
 ## 与 [Sqids](https://sqids.org/) 功能对比
 
@@ -68,7 +95,7 @@
 | 阻止列表（Blocklist） | 支持，过滤敏感词         | **不支持**（见下说明）                            |
 | 最小长度约束          | 支持 `min_length`  | 不支持（追求最短自然编码）                            |
 | 自定义字母表          | 支持（默认 64 字符）     | 支持（默认 62 字符）                             |
-| 单次最大元素数         | 无硬性上限            | 默认 511（可配置）                              |
+| 单次最大元素数         | 无硬性上限            | 默认 255（可配置）                              |
 
 
 **关于阻止列表**：idmix 不提供 Sqids 式的 blocklist 过滤。原因是 idmix 内置 **32 态变体多态**——同一组数据每次编码会随机选取不同 `variant_id`，字符串形态天然分散，出现特定敏感词的概率极低；若偶发不满意，重新调用 `Encode` 即可得到另一变体。配合 2-bit 校验，随机猜测的有效率也更低。
@@ -131,70 +158,57 @@ cd rust/lib && cargo test --test benchmark_sqids -- --nocapture
 
 
 
-## 与 MessagePack / CBOR / Protobuf 编码长度对比
+## 与 MessagePack / CBOR / Protobuf 对比（IDX 二进制层）
 
-以下对比 **XID** 与 **MessagePack**、**CBOR**、**Protobuf**（无 schema、逐字段带 `otype`+`val`）在相同 typed 整数序列上的**输出长度**与**编解码性能**。二进制格式统一做 **base64** 后再计字符数，便于与 XID 文本字符串直接比较；`XID` 列为文本层字符串长度（默认 62 进制字母表）。
+以下对比 **IDX 二进制字节数**与 MessagePack、CBOR、Protobuf（无 schema、逐字段带 `otype`+`val`），**不含 base64 或 idmix 文本层**，与 MsgPack/CBOR/Protobuf 公平对比。
 
-### 编码长度
+### 编码长度（字节）
 
+| 场景 | IDX | MsgPack | CBOR | Protobuf |
+| --- | --- | --- | --- | --- |
+| spec_example | 6 | 46 | 23 | 27 |
+| uint32_max | 6 | 16 | 12 | 10 |
+| int32_min | 6 | 16 | 12 | 15 |
+| int64_min | 10 | 16 | 16 | 15 |
+| int64_max | 10 | 16 | 16 | 14 |
+| uint64_max | 10 | 16 | 8 | 15 |
+| mixed_extremes | 39 | 76 | 60 | 69 |
+| access_key | 11 | 46 | 28 | 23 |
+| embedded_small | 6 | 61 | 29 | 42 |
+| string_example | 16 | 16 | 8 | 6 |
 
-| 场景             | XID | XID(b64) | MsgPack | CBOR | Protobuf |
-| -------------- | --- | -------- | ------- | ---- | -------- |
-| spec_example   | 9   | 12       | 64      | 32   | 36       |
-| uint32_max     | 10  | 16       | 24      | 16   | 16       |
-| int32_min      | 10  | 16       | 24      | 16   | 20       |
-| int64_min      | 16  | 24       | 24      | 24   | 20       |
-| int64_max      | 16  | 24       | 24      | 24   | 20       |
-| uint64_max     | 16  | 24       | 24      | 12   | 20       |
-| mixed_extremes | 54  | 72       | 104     | 80   | 92       |
-| access_key     | 16  | 24       | 64      | 40   | 32       |
-| embedded_small | 9   | 12       | 84      | 40   | 56       |
+`mixed_extremes` 含五个极值单字段；`string_example` = `"hello"` + `uint16(5)` + `"世界"`（variant=0，Go 参考实现实测）。
 
+IDX 在 typed 整数场景下二进制体积通常**远小于** MsgPack；短字符串内联时与 CBOR 接近。
 
-`mixed_extremes` 含五个极值单字段：`uint32_max`、`int32_min`、`int64_min`、`int64_max`、`uint64_max`（variant=0，Go 参考实现实测）。
+### 编解码性能（IDX 二进制层，相对倍数）
 
-XID 在中小整数、极值单字段场景下通常**短于**通用序列化格式；MsgPack/CBOR/Protobuf 需额外携带 map 键名或字段 tag，开销更大。小整数密集时 XID 内嵌模式（1 字节/值）优势更明显。
-
-### 编解码性能（相对倍数）
-
-Go 参考实现，本机单线程，每项 ≥200ms 采样。表中倍数为 **XID ops/s ÷ 对方 ops/s**；**>1 表示 XID 更快**，<1 表示对方更快。Protobuf 对比使用 `protowire` 手工编解码（无 schema 反射），代表紧凑二进制路径的上限。
+Go 参考实现，单线程，每项 20000 次采样。倍数为 **IDX ops/s ÷ 对方 ops/s**；**>1 表示 IDX 更快**。
 
 **编码**
 
-
-| 场景             | vs MsgPack | vs CBOR | vs Protobuf |
-| -------------- | ---------- | ------- | ----------- |
-| spec_example   | 1.1×       | 0.6×    | 0.5×        |
-| access_key     | 0.7×       | 0.4×    | 0.3×        |
-| embedded_small | **1.4×**   | 0.7×    | 0.6×        |
-| mixed_extremes | 0.3×       | 0.1×    | 0.2×        |
-
+| 场景 | vs MsgPack | vs CBOR | vs Protobuf |
+| --- | --- | --- | --- |
+| spec_example | 2.2× | 1.3× | 0.8× |
+| access_key | 3.2× | 2.2× | 1.1× |
+| embedded_small | 3.7× | 1.9× | 1.8× |
+| mixed_extremes | 1.7× | 0.7× | 0.9× |
 
 **解码**
 
+| 场景 | vs MsgPack | vs CBOR | vs Protobuf |
+| --- | --- | --- | --- |
+| spec_example | 5.9× | 4.3× | 0.8× |
+| access_key | 4.9× | 3.1× | 0.6× |
+| embedded_small | 7.1× | 5.7× | 0.8× |
+| mixed_extremes | 3.0× | 2.7× | 0.5× |
 
-| 场景             | vs MsgPack | vs CBOR  | vs Protobuf |
-| -------------- | ---------- | -------- | ----------- |
-| spec_example   | **1.5×**   | **1.2×** | 0.2×        |
-| access_key     | **1.1×**   | 0.8×     | 0.1×        |
-| embedded_small | **1.8×**   | **1.4×** | 0.2×        |
-| mixed_extremes | 0.5×       | 0.4×     | 0.1×        |
-
-
-**小结**
-
-- **体积**：XID 在典型 typed 整数场景下字符串更短，可直接用于 URL/日志，无需再 base64。
-- **编码**：纯二进制格式（尤其 CBOR / Protobuf）通常更快；XID 需做位打包 + 变长进制文本化，大整数/多极值序列（`mixed_extremes`）时编码明显慢于三者。
-- **解码**：相对 MsgPack / CBOR，XID 在中小整数场景下通常更快（1.1×~1.8×）；手工 `protowire` 解码极快，不代表带完整 Protobuf runtime 的实际成本。
-- **定位**：XID 优先换更短的**可读 ID 字符串**；若只追求二进制吞吐且不关心人类可读，MsgPack/CBOR/Protobuf 仍是合理选择。
+**小结**：IDX 二进制编解码在中小整数场景显著快于 MsgPack/CBOR；若需 URL 可读字符串，再叠加 idmix 文本层。
 
 运行对比测试：
 
 ```bash
-# 长度对比
 cd golang && go test -v -run TestCompareSerializationFormats
-
-# 性能对比
 cd golang && go test -v -run TestCompareSerializationFormatsPerformance
 ```
 
@@ -220,16 +234,15 @@ cd golang && go test -v -run TestCompareSerializationFormatsPerformance
 
 
 
-### 扩展模式负载说明
+### 扩展模式说明
 
-`[arithmetic.md](arithmetic.md)` 第 2.2 节核心思路：
+[arithmetic.md](arithmetic.md) 第 2.2 节核心思路：
 
-1. **负数**先转为**正数表示** `P`（补码取反加一），扩展模式对象头 **bit6** 记录符号。
-2. **存储宽度** `sw` 仅由 `P` 的大小决定（`<256`→1 字节，`<65536`→2 字节，…），与 otype 位宽无关；负载为 `P` 的无符号小端整数。
-3. **解码**时按 `sw` 切出 `P`，若 bit6=1 再还原为负数。
-4. **内嵌模式**（bit7=0）：`P < 17` 时 1 字节存下，覆盖 **[-16, 16]**（+16 占 2 字节扩展）。
-
-因 `otype` 已标明类型，**不存在**「负载 bit7 猜符号」问题，也**不需要**按 otype 全宽回退。
+1. **扩展数字**（bit6=0）：有符号类型用二补码小端负载，无符号类型用无符号小端；**不再使用 bit6 符号位**。
+2. **扩展字符串**（bit6=1）：bit5-0 为长度（1~63），后跟原始字节。
+3. **存储宽度** `sw` 仅由数值大小决定，与 otype 位宽无关。
+4. **内嵌模式**（bit7=0）：覆盖 **[-15, 15]**（+16 占 2 字节扩展）。
+5. **单对象 header** 仅 1 字节，多对象时追加 count 字节。
 
 ### 跨语言互操作测试
 
@@ -270,10 +283,28 @@ import (
 )
 
 func main() {
+    // 组合：IDX + Codec
     m, _ := idmix.New()
-    str, _ := m.Encode(uint16(5), int64(-1), uint32(40))
+    str, _ := m.Encode(uint16(5), int64(-1), uint32(40), "hello")
     list, _ := m.Decode(str)
-    fmt.Println(str, list[0].(uint16), list[1].(int64), list[2].(uint32))
+    fmt.Println(str, list[0].(uint16), list[1].(int64), list[2].(uint32), list[3].(string))
+
+    // 仅 IDX 二进制层（maxObjects 等在此配置）
+    idx, _ := idmix.NewIdx(idmix.WithMaxObjects(100))
+    bin, _ := idx.Encode(uint16(5), int64(-1))
+    out, _ := idx.Decode(bin)
+
+    // 仅文本层（包级函数，Codec 可选）
+    protoBytes := []byte{0x08, 0x96, 0x01}
+    obfuscated, _ := idmix.EncodeBytes(protoBytes)
+    obfuscated, _ = idmix.EncodeBytes(protoBytes, idmix.NewBase64Codec())
+    raw, _ := idmix.DecodeString(obfuscated, idmix.NewBase64Codec())
+
+    // 自定义 Codec：WithCodec(radix) 或 WithAlphabet("abcd")
+    radix, _ := idmix.NewRadixCodec(idmix.DefaultAlphabet)
+    custom, _ := idmix.New(idmix.WithIdx(idx), idmix.WithCodec(radix))
+    _, _ = custom, out
+    _ = raw
 }
 ```
 
@@ -538,9 +569,11 @@ IdMix m("abcd");
 
 ```
 idmix/
-├── arithmetic.md    # XID v1.1 完整规范
+├── README.md        # 项目总览（中文）
+├── README_en.md     # Project overview (English)
+├── arithmetic.md    # IDX v1.2 完整规范 + idmix 文本层
 ├── PACKAGING.md     # 各语言包发布与安装指南
-├── golang/          # Go 参考实现
+├── golang/          # Go 参考实现（含 README / README_en）
 ├── rust/lib/        # Rust crate
 ├── php/             # PHP (Composer: vanni/idmix)
 ├── python/          # Python (pip: vanni-idmix)
@@ -549,7 +582,8 @@ idmix/
 ├── csharp/          # C# (NuGet: Vanni.Idmix)
 ├── vb/              # VB.NET (NuGet: Vanni.Idmix.Vb)
 ├── cpp/             # C++ 库
-└── c/               # C 库
+├── c/               # C 库
+└── testdata/        # 跨语言测试向量 cross_language_vectors.json
 ```
 
 
@@ -589,17 +623,16 @@ cd c && cmake -B build && cmake --build build && build/Debug/idmix_c_test
 
 ## 包安装（无需 git clone）
 
-当前版本 **0.3.0**。各语言可通过包管理器直接安装；发布细节见 [PACKAGING.md](PACKAGING.md)。
-
+当前版本 **0.4.0**（IDX v1.2）。各语言可通过包管理器直接安装；发布细节见 [PACKAGING.md](PACKAGING.md)。
 
 | 语言         | 安装命令                                       | 包仓库                                                                                    |
 | ---------- | ------------------------------------------ | -------------------------------------------------------------------------------------- |
 | Go         | `go get github.com/Vanni-Fan/idmix/golang` | [pkg.go.dev](https://pkg.go.dev/github.com/Vanni-Fan/idmix/golang)                     |
 | PHP        | `composer require vanni/idmix`             | [Packagist](https://packagist.org/packages/vanni/idmix)                                |
-| Rust       | `cargo add idmix@0.3.0`                    | [crates.io](https://crates.io/crates/idmix/0.3.0)                                      |
+| Rust       | `cargo add idmix@0.4.0`                    | [crates.io](https://crates.io/crates/idmix)                                            |
 | Python     | `pip install vanni-idmix`                  | [PyPI](https://pypi.org/project/vanni-idmix/)                                          |
 | JavaScript | `npm install @vanni.fan/idmix`             | [npm](https://www.npmjs.com/package/@vanni.fan/idmix)                                  |
-| Java       | Maven `io.github.vanni-fan:idmix:0.3.0`    | [Maven Central](https://central.sonatype.com/artifact/io.github.vanni-fan/idmix/0.3.0) |
+| Java       | Maven `io.github.vanni-fan:idmix:0.4.0`    | [Maven Central](https://central.sonatype.com/artifact/io.github.vanni-fan/idmix) |
 | C#         | `dotnet add package Vanni.Idmix`           | [NuGet](https://www.nuget.org/packages/Vanni.Idmix)                                    |
 | VB.NET     | `dotnet add package Vanni.Idmix.Vb`        | [NuGet](https://www.nuget.org/packages/Vanni.Idmix.Vb)                                 |
 | C/C++      | 见上文 **FetchContent**（用户 CMake 集成）          | [GitHub](https://github.com/Vanni-Fan/idmix)                                           |
@@ -609,9 +642,10 @@ cd c && cmake -B build && cmake --build build && build/Debug/idmix_c_test
 
 ## 限制
 
-- 单次编码最多 **511** 个对象（可配置）
+- 单次编码最多 **255** 个对象
+- 字符串单段最长 **63** 字节
 - 推荐用于中小整数；过大数值压缩率下降
-- 变体随机选取，同一输入多次编码字符串不同，但均可正确解码
+- 变体随机选取，同一输入多次 Encode 字符串不同，但均可正确解码
 - **PHP** 依赖 `ext-bcmath`；未安装时运行时将抛出明确错误
 
 

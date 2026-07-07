@@ -1,4 +1,4 @@
-// benchmark_formats_test.go 对比 XID 与 MessagePack、CBOR、Protobuf 的编码长度与性能。
+// benchmark_formats_test.go 对比 IDX 与 MessagePack、CBOR、Protobuf 的二进制长度与性能。
 //
 // 运行:
 //   - go test -v -run TestCompareSerializationFormats          # 长度对比
@@ -6,7 +6,6 @@
 package idmix
 
 import (
-	"encoding/base64"
 	"fmt"
 	"strings"
 	"testing"
@@ -16,7 +15,6 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
-// typedPair 表示带类型的整数，供 msgpack/cbor 无 schema 编码。
 type typedPair struct {
 	OType int   `msgpack:"t" cbor:"t"`
 	Val   int64 `msgpack:"v" cbor:"v"`
@@ -31,36 +29,36 @@ type formatCase struct {
 func serializationFormatCases() []formatCase {
 	return []formatCase{
 		{
-			name: "spec_example",
+			name:  "spec_example",
 			idmix: []any{uint16(5), int64(-1), uint32(40)},
 			values: []typedPair{
 				{1, 5}, {7, -1}, {2, 40},
 			},
 		},
 		{
-			name: "uint32_max",
-			idmix: []any{extremeUint32Max},
+			name:   "uint32_max",
+			idmix:  []any{extremeUint32Max},
 			values: []typedPair{{2, int64(extremeUint32Max)}},
 		},
 		{
-			name: "int32_min",
-			idmix: []any{extremeInt32Min},
+			name:   "int32_min",
+			idmix:  []any{extremeInt32Min},
 			values: []typedPair{{6, int64(extremeInt32Min)}},
 		},
 		{
-			name: "int64_min",
-			idmix: []any{extremeInt64Min},
+			name:   "int64_min",
+			idmix:  []any{extremeInt64Min},
 			values: []typedPair{{7, extremeInt64Min}},
 		},
 		{
-			name: "int64_max",
-			idmix: []any{extremeInt64Max},
+			name:   "int64_max",
+			idmix:  []any{extremeInt64Max},
 			values: []typedPair{{7, extremeInt64Max}},
 		},
 		{
-			name:  "uint64_max",
-			idmix: []any{extremeUint64Max},
-			values: []typedPair{{3, -1}}, // uint64 max 的 int64 bit 模式
+			name:   "uint64_max",
+			idmix:  []any{extremeUint64Max},
+			values: []typedPair{{3, -1}},
 		},
 		{
 			name: "mixed_extremes",
@@ -74,14 +72,25 @@ func serializationFormatCases() []formatCase {
 			},
 		},
 		{
-			name: "access_key",
+			name:  "access_key",
 			idmix: []any{uint32(1001), uint64(1690000000), uint8(3)},
-			values: []typedPair{{2, 1001}, {3, 1690000000}, {0, 3}},
+			values: []typedPair{
+				{2, 1001}, {3, 1690000000}, {0, 3},
+			},
 		},
 		{
-			name: "embedded_small",
+			name:  "embedded_small",
 			idmix: []any{uint8(15), int8(-16), uint16(0), int16(-1)},
-			values: []typedPair{{0, 15}, {4, -16}, {1, 0}, {5, -1}},
+			values: []typedPair{
+				{0, 15}, {4, -16}, {1, 0}, {5, -1},
+			},
+		},
+		{
+			name:  "string_example",
+			idmix: []any{"hello", uint16(5), "世界"},
+			values: []typedPair{
+				{1, 5},
+			},
 		},
 	}
 }
@@ -94,7 +103,6 @@ func encodeCBOR(pairs []typedPair) ([]byte, error) {
 	return cbor.Marshal(pairs)
 }
 
-// encodeProtobuf 手工编码 TypedIntList { repeated TypedInt { otype, val } }。
 func encodeProtobuf(pairs []typedPair) ([]byte, error) {
 	var buf []byte
 	for _, p := range pairs {
@@ -109,11 +117,15 @@ func encodeProtobuf(pairs []typedPair) ([]byte, error) {
 	return buf, nil
 }
 
-func b64Len(raw []byte) int {
-	return len(base64.StdEncoding.EncodeToString(raw))
+func idxBinaryLen(m *IdMix, values ...any) (int, error) {
+	data, err := m.encodeBinary(values, 0)
+	if err != nil {
+		return 0, err
+	}
+	return len(data), nil
 }
 
-// TestCompareSerializationFormats 对比 XID 与 MessagePack/CBOR/Protobuf 的 base64 编码长度。
+// TestCompareSerializationFormats 对比 IDX 与 MessagePack/CBOR/Protobuf 的二进制字节数。
 func TestCompareSerializationFormats(t *testing.T) {
 	m, err := New()
 	if err != nil {
@@ -121,17 +133,16 @@ func TestCompareSerializationFormats(t *testing.T) {
 	}
 
 	t.Log("══════════════════════════════════════════════════════════════════════")
-	t.Log("  XID vs MessagePack / CBOR / Protobuf — base64 编码后长度对比")
-	t.Log("  说明: 二进制格式统一 base64 编码后比较字符长度；XID 为文本层字符串长度")
+	t.Log("  IDX vs MessagePack / CBOR / Protobuf — 二进制字节数对比")
 	t.Log("══════════════════════════════════════════════════════════════════════")
 
-	header := fmt.Sprintf("%-22s | %6s | %6s | %6s | %6s | %6s",
-		"场景", "XID", "XID(b64)", "MsgPack", "CBOR", "Proto")
+	header := fmt.Sprintf("%-22s | %6s | %6s | %6s | %6s",
+		"场景", "IDX", "MsgPack", "CBOR", "Proto")
 	t.Log(header)
 	t.Log(strings.Repeat("-", len(header)))
 
 	for _, c := range serializationFormatCases() {
-		stat, err := measureIdmixLength(m, c.idmix...)
+		idxLen, err := idxBinaryLen(m, c.idmix...)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -149,17 +160,8 @@ func TestCompareSerializationFormats(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// XID 文本串再 base64 一层，便于与二进制格式公平对比字符长度
-		xidB64 := base64.StdEncoding.EncodeToString([]byte(stat.sample))
-
-		t.Logf("%-22s | %6.0f | %6d | %6d | %6d | %6d",
-			c.name,
-			stat.min,
-			len(xidB64),
-			b64Len(mp),
-			b64Len(cb),
-			b64Len(pb),
-		)
+		t.Logf("%-22s | %6d | %6d | %6d | %6d",
+			c.name, idxLen, len(mp), len(cb), len(pb))
 	}
 }
 
@@ -217,29 +219,33 @@ func decodeProtobuf(data []byte) ([]typedPair, error) {
 	return pairs, nil
 }
 
-// TestCompareSerializationFormatsPerformance 对比 XID 与 MessagePack/CBOR/Protobuf 编解码吞吐。
+// TestCompareSerializationFormatsPerformance 对比 IDX 与 MessagePack/CBOR/Protobuf 编解码吞吐。
 func TestCompareSerializationFormatsPerformance(t *testing.T) {
 	const rounds = 20000
 
+	idx, err := NewIdx()
+	if err != nil {
+		t.Fatal(err)
+	}
 	m, err := New()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	perfCases := []formatCase{
-		serializationFormatCases()[0], // spec_example
-		serializationFormatCases()[7], // access_key
-		serializationFormatCases()[8], // embedded_small
-		serializationFormatCases()[6], // mixed_extremes
+		serializationFormatCases()[0],
+		serializationFormatCases()[7],
+		serializationFormatCases()[8],
+		serializationFormatCases()[6],
 	}
 
 	t.Log("══════════════════════════════════════════════════════════════════════")
-	t.Logf("  XID vs MessagePack / CBOR / Protobuf — 性能对比 (各 %d 次, 单线程)", rounds)
-	t.Log("  说明: 倍数 = XID ops/s ÷ 对方 ops/s；>1 表示 XID 更快")
+	t.Logf("  IDX vs MessagePack / CBOR / Protobuf — 性能对比 (各 %d 次, 单线程)", rounds)
+	t.Log("  说明: 倍数 = IDX ops/s ÷ 对方 ops/s；>1 表示 IDX 更快")
 	t.Log("══════════════════════════════════════════════════════════════════════")
 
 	for _, c := range perfCases {
-		xidStr, err := m.Encode(c.idmix...)
+		idxRaw, err := m.encodeBinary(c.idmix, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -257,12 +263,12 @@ func TestCompareSerializationFormatsPerformance(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		xidEnc := benchOnce(rounds, func() { _, _ = m.Encode(c.idmix...) })
+		idxEnc := benchOnce(rounds, func() { _, _ = m.encodeBinary(c.idmix, 0) })
 		mpEnc := benchOnce(rounds, func() { _, _ = encodeMsgPack(c.values) })
 		cbEnc := benchOnce(rounds, func() { _, _ = encodeCBOR(c.values) })
 		pbEnc := benchOnce(rounds, func() { _, _ = encodeProtobuf(c.values) })
 
-		xidDec := benchOnce(rounds, func() { _, _ = m.Decode(xidStr) })
+		idxDec := benchOnce(rounds, func() { _, _ = idx.Decode(idxRaw) })
 		mpDec := benchOnce(rounds, func() {
 			var out []typedPair
 			_ = msgpack.Unmarshal(mpRaw, &out)
@@ -274,14 +280,14 @@ func TestCompareSerializationFormatsPerformance(t *testing.T) {
 		pbDec := benchOnce(rounds, func() { _, _ = decodeProtobuf(pbRaw) })
 
 		t.Logf("▶ %s", c.name)
-		t.Logf("  编码  XID:     %8.0f ops/s  (%6.0f ns/op)", xidEnc.opsPerSec, xidEnc.nsPerOp)
-		t.Logf("  编码  MsgPack: %8.0f ops/s  (%6.0f ns/op)  [XID/MsgPack = %.2fx]", mpEnc.opsPerSec, mpEnc.nsPerOp, ratio(xidEnc.opsPerSec, mpEnc.opsPerSec))
-		t.Logf("  编码  CBOR:    %8.0f ops/s  (%6.0f ns/op)  [XID/CBOR = %.2fx]", cbEnc.opsPerSec, cbEnc.nsPerOp, ratio(xidEnc.opsPerSec, cbEnc.opsPerSec))
-		t.Logf("  编码  Proto:   %8.0f ops/s  (%6.0f ns/op)  [XID/Proto = %.2fx]", pbEnc.opsPerSec, pbEnc.nsPerOp, ratio(xidEnc.opsPerSec, pbEnc.opsPerSec))
-		t.Logf("  解码  XID:     %8.0f ops/s  (%6.0f ns/op)", xidDec.opsPerSec, xidDec.nsPerOp)
-		t.Logf("  解码  MsgPack: %8.0f ops/s  (%6.0f ns/op)  [XID/MsgPack = %.2fx]", mpDec.opsPerSec, mpDec.nsPerOp, ratio(xidDec.opsPerSec, mpDec.opsPerSec))
-		t.Logf("  解码  CBOR:    %8.0f ops/s  (%6.0f ns/op)  [XID/CBOR = %.2fx]", cbDec.opsPerSec, cbDec.nsPerOp, ratio(xidDec.opsPerSec, cbDec.opsPerSec))
-		t.Logf("  解码  Proto:   %8.0f ops/s  (%6.0f ns/op)  [XID/Proto = %.2fx]", pbDec.opsPerSec, pbDec.nsPerOp, ratio(xidDec.opsPerSec, pbDec.opsPerSec))
+		t.Logf("  编码  IDX:     %8.0f ops/s  (%6.0f ns/op)", idxEnc.opsPerSec, idxEnc.nsPerOp)
+		t.Logf("  编码  MsgPack: %8.0f ops/s  (%6.0f ns/op)  [IDX/MsgPack = %.2fx]", mpEnc.opsPerSec, mpEnc.nsPerOp, ratio(idxEnc.opsPerSec, mpEnc.opsPerSec))
+		t.Logf("  编码  CBOR:    %8.0f ops/s  (%6.0f ns/op)  [IDX/CBOR = %.2fx]", cbEnc.opsPerSec, cbEnc.nsPerOp, ratio(idxEnc.opsPerSec, cbEnc.opsPerSec))
+		t.Logf("  编码  Proto:   %8.0f ops/s  (%6.0f ns/op)  [IDX/Proto = %.2fx]", pbEnc.opsPerSec, pbEnc.nsPerOp, ratio(idxEnc.opsPerSec, pbEnc.opsPerSec))
+		t.Logf("  解码  IDX:     %8.0f ops/s  (%6.0f ns/op)", idxDec.opsPerSec, idxDec.nsPerOp)
+		t.Logf("  解码  MsgPack: %8.0f ops/s  (%6.0f ns/op)  [IDX/MsgPack = %.2fx]", mpDec.opsPerSec, mpDec.nsPerOp, ratio(idxDec.opsPerSec, mpDec.opsPerSec))
+		t.Logf("  解码  CBOR:    %8.0f ops/s  (%6.0f ns/op)  [IDX/CBOR = %.2fx]", cbDec.opsPerSec, cbDec.nsPerOp, ratio(idxDec.opsPerSec, cbDec.opsPerSec))
+		t.Logf("  解码  Proto:   %8.0f ops/s  (%6.0f ns/op)  [IDX/Proto = %.2fx]", pbDec.opsPerSec, pbDec.nsPerOp, ratio(idxDec.opsPerSec, pbDec.opsPerSec))
 		t.Log("")
 	}
 }

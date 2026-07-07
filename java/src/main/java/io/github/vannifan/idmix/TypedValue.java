@@ -30,6 +30,10 @@ public final class TypedValue {
     public static TypedValue i32(int v) { return new TypedValue(OTYPE_INT32, v); }
     public static TypedValue i64(long v) { return new TypedValue(OTYPE_INT64, v); }
 
+    public static TypedValue fromOtype(int otype, long val) {
+        return new TypedValue(otype, val);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (!(o instanceof TypedValue tv)) return false;

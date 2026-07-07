@@ -4,7 +4,7 @@ namespace Vanni\Idmix;
 /**
  * 自定义进制文本层：二进制块 ↔ 字符串。
  */
-class RadixCodec
+class RadixCodec implements Codec
 {
     private int $base;
     /** @var string[] */
@@ -29,7 +29,7 @@ class RadixCodec
         }
     }
 
-    public function encodeBytes(string $data): string
+    public function encode(string $data): string
     {
         if ($data === '') {
             return $this->chars[0];
@@ -40,7 +40,7 @@ class RadixCodec
         return $this->intToString($decimal);
     }
 
-    public function decodeBytes(string $s): string
+    public function decode(string $s): string
     {
         if ($s === '') {
             throw new \InvalidArgumentException('empty string');
@@ -60,6 +60,18 @@ class RadixCodec
             return substr($buf, 2);
         }
         throw new \InvalidArgumentException('invalid encoded data length');
+    }
+
+    /** @deprecated use encode() */
+    public function encodeBytes(string $data): string
+    {
+        return $this->encode($data);
+    }
+
+    /** @deprecated use decode() */
+    public function decodeBytes(string $s): string
+    {
+        return $this->decode($s);
     }
 
     private function intToString(string $decimal): string

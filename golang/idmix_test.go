@@ -68,30 +68,25 @@ func TestDemoMixedSmallInts(t *testing.T) {
 		uint8(10), int16(-5), uint32(1000), int64(-999))
 }
 
-// TestSpecExampleBinary 验证 encodeBinary 输出与 arithmetic.md 第 7 节固定样例一致。
-// variant_id=0 时，[uint16(5), int64(-1), uint32(40)] 的二进制块应为固定 6 字节。
+// TestSpecExampleBinary 验证 encodeBinary 输出与 arithmetic.md 固定样例一致。
+// variant_id=0 时，[uint16(5), int64(-1), uint32(40)] 为 3 对象块（2 字节 header）。
 func TestSpecExampleBinary(t *testing.T) {
 	m, err := New()
 	if err != nil {
 		t.Fatal(err)
 	}
-	typed := []typedValue{
-		{otypeUint16, 5},
-		{otypeInt64, -1},
-		{otypeUint32, 40},
-	}
-	data, err := m.encodeBinary(typed, 0)
+	data, err := m.encodeBinary([]any{uint16(5), int64(-1), uint32(40)}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []byte{0x0F, 0x00, 0x22, 0x47, 0xB5, 0x1F}
+	want := []byte{0x80, 0x03, 0x22, 0x47, 0xB5, 0x1F}
 	t.Logf("规范二进制块 (variant=0): %s", formatHex(data))
 	for i := range want {
 		if data[i] != want[i] {
-			t.Fatalf("byte[%d] = %02X, want %02X", i, data[i], want[i])
+			t.Fatalf("byte[%d] = %02X, want %02X (full: %s)", i, data[i], want[i], formatHex(data))
 		}
 	}
-	t.Log("二进制块与 arithmetic.md 第7节示例一致")
+	t.Log("二进制块与 arithmetic.md 示例一致")
 }
 
 // TestRadixRoundTrip 测试进制层的字符表校验与字节往返。
@@ -107,10 +102,10 @@ func TestRadixRoundTrip(t *testing.T) {
 		{"duplicate", "abca", true},
 		{"tooShort", "a", true},
 	}
-	raw := []byte{0x0F, 0x00, 0x22, 0x47, 0xB5, 0x1F}
+	raw := []byte{0x80, 0x03, 0x22, 0x47, 0xB5, 0x1F}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			m, err := New(WithAlphabet(c.alphabet))
+			_, err := New(WithAlphabet(c.alphabet))
 			if c.wantError {
 				if err == nil {
 					t.Fatal("expected error")
@@ -121,11 +116,15 @@ func TestRadixRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			enc, err := m.radix.encodeBytes(raw)
+			rc, err := NewRadixCodec(c.alphabet)
 			if err != nil {
 				t.Fatal(err)
 			}
-			dec, err := m.radix.decodeBytes(enc)
+			enc, err := EncodeBytes(raw, rc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dec, err := DecodeString(enc, rc)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -165,7 +164,7 @@ func TestRoundTripAllTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := m.radix.decodeBytes(str)
+	raw, _ := DecodeString(str, m.Codec())
 	t.Logf("全类型测试: 输入 %d 个值", len(inputs))
 	t.Logf("  二进制: %s (%d bytes)", formatHex(raw), len(raw))
 	t.Logf("  字符串: %q (len=%d)", str, len(str))
@@ -216,7 +215,7 @@ func TestEmbeddedModes(t *testing.T) {
 		{int32(0), 1, "内嵌"},
 	}
 	for _, c := range cases {
-		tv, err := valueFromAny(c.v)
+		tv, err := objectFromAny(c.v)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -232,20 +231,235 @@ func TestEmbeddedModes(t *testing.T) {
 	}
 }
 
+// TestSingleObjectOneByteHeader 单元素编码时 IDX 整体头仅 1 字节（无 count 字节）。
+func TestSingleObjectOneByteHeader(t *testing.T) {
+	idx, err := NewIdx()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name  string
+		val   any
+		objLen int // 对象区字节数（不含 header）
+	}{
+		{"embedded_uint8", uint8(10), 1},
+		{"embedded_int16_neg", int16(-5), 1},
+		{"extended_uint32", uint32(1000), 3}, // 1 对象头 + 2 负载
+		{"extended_string", "hi", 1 + 2}, // 1 头 + 2 负载
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			data, err := idx.EncodeWithVariant(0, c.val)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantTotal := 1 + c.objLen
+			if len(data) != wantTotal {
+				t.Fatalf("len=%d, want %d (1-byte header + object)", len(data), wantTotal)
+			}
+			if data[0]&0x80 != 0 {
+				t.Fatalf("header byte0=%02X, bit7 should be 0 (single object)", data[0])
+			}
+			t.Logf("单元素 %v => %s (header 1 字节, 总长 %d)", c.val, formatHex(data), len(data))
+
+			out, err := idx.Decode(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(out) != 1 {
+				t.Fatalf("decoded count=%d, want 1", len(out))
+			}
+			got := fmt.Sprintf("%v", out[0])
+			want := fmt.Sprintf("%v", c.val)
+			if got != want {
+				t.Fatalf("decoded %v, want %v", out[0], c.val)
+			}
+		})
+	}
+
+	// 对比：两元素时 header 为 2 字节
+	multi, err := idx.EncodeWithVariant(0, uint8(1), uint8(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(multi) < 2 {
+		t.Fatal("multi-object block too short")
+	}
+	if multi[0]&0x80 == 0 {
+		t.Fatalf("multi header byte0=%02X, bit7 should be 1", multi[0])
+	}
+	if multi[1] != 2 {
+		t.Fatalf("count byte=%d, want 2", multi[1])
+	}
+	t.Logf("双元素对比 => %s (header 2 字节)", formatHex(multi))
+}
+
+// TestSingleObjectHeaderIdMix 单元素经 IdMix 端到端往返，二进制层仍为 1 字节头。
+func TestSingleObjectHeaderIdMix(t *testing.T) {
+	m, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	str, err := m.EncodeWithVariant(0, uint32(42))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := DecodeString(str, m.Codec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) < 1 {
+		t.Fatal("empty binary")
+	}
+	if raw[0]&0x80 != 0 {
+		t.Fatalf("IdMix 单元素 header bit7=1, got %02X", raw[0])
+	}
+	list, err := m.Decode(str)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list[0].(uint32) != 42 {
+		t.Fatalf("got %v, want 42", list[0])
+	}
+	t.Logf("IdMix 单元素: binary=%s str=%q", formatHex(raw), str)
+}
+
+// TestStringRoundTrip 扩展模式字符串（≤63 字节）往返。
+func TestStringRoundTrip(t *testing.T) {
+	m, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := logRoundTrip(t, m, "字符串 + 整数", "hello", uint16(5), "世界")
+	if list[0].(string) != "hello" || list[1].(uint16) != 5 || list[2].(string) != "世界" {
+		t.Fatal("值不匹配")
+	}
+}
+
+// TestCustomCodec 验证可插拔 Codec（Base64、异或包装等）。
+func TestCustomCodec(t *testing.T) {
+	raw := []byte{0x80, 0x03, 0x22, 0x47, 0xB5, 0x1F}
+
+	t.Run("base64", func(t *testing.T) {
+		c := NewBase64Codec()
+		s, err := EncodeBytes(raw, c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := DecodeString(s, c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(out) != string(raw) {
+			t.Fatal("base64 round-trip failed")
+		}
+		m, err := New(WithCodec(c))
+		if err != nil {
+			t.Fatal(err)
+		}
+		str, err := m.EncodeWithVariant(0, uint16(5), int64(-1), uint32(40))
+		if err != nil {
+			t.Fatal(err)
+		}
+		list, err := m.Decode(str)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if list[0].(uint16) != 5 {
+			t.Fatal("IdMix with Base64Codec failed")
+		}
+	})
+
+	t.Run("xor_wrap_radix", func(t *testing.T) {
+		inner := mustRadix(t, DefaultAlphabet)
+		const key byte = 0x5A
+		xor := FuncCodec{
+			EncodeFn: func(data []byte) (string, error) {
+				buf := make([]byte, len(data))
+				for i, b := range data {
+					buf[i] = b ^ key
+				}
+				return inner.Encode(buf)
+			},
+			DecodeFn: func(s string) ([]byte, error) {
+				buf, err := inner.Decode(s)
+				if err != nil {
+					return nil, err
+				}
+				for i := range buf {
+					buf[i] ^= key
+				}
+				return buf, nil
+			},
+		}
+		s, err := EncodeBytes(raw, xor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := DecodeString(s, xor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(out) != string(raw) {
+			t.Fatal("xor+radix round-trip failed")
+		}
+	})
+}
+
+func mustRadix(t *testing.T, alphabet string) *RadixCodec {
+	t.Helper()
+	rc, err := NewRadixCodec(alphabet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rc
+}
+
+// TestEncodeBytesStandalone 包级 EncodeBytes/DecodeString 可独立包装任意二进制。
+func TestEncodeBytesStandalone(t *testing.T) {
+	raw := []byte{0xDE, 0xAD, 0xBE, 0xEF}
+	s, err := EncodeBytes(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := DecodeString(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != string(raw) {
+		t.Fatalf("got %x, want %x", out, raw)
+	}
+	t.Logf("EncodeBytes: %q => %q", raw, s)
+
+	s2, err := EncodeBytes(raw, mustRadix(t, "abcd"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out2, err := DecodeString(s2, mustRadix(t, "abcd"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out2) != string(raw) {
+		t.Fatal("custom alphabet round-trip failed")
+	}
+}
+
 // TestChecksumRejects 篡改对象区任意字节后，解码应被校验和拒绝。
 func TestChecksumRejects(t *testing.T) {
 	m, err := New()
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := m.encodeBinary([]typedValue{{otypeUint32, 1}}, 0)
+	data, err := m.encodeBinary([]any{uint32(1)}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("原始二进制: %s", formatHex(data))
-	data[2] ^= 0x01
+	data[1] ^= 0x01
 	t.Logf("篡改后:     %s (对象区首字节 XOR 0x01)", formatHex(data))
-	str, err := m.radix.encodeBytes(data)
+	str, err := EncodeBytes(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,19 +471,31 @@ func TestChecksumRejects(t *testing.T) {
 	t.Logf("解码结果: 拒绝 ✓  (%v)", err)
 }
 
-// TestNewValidation 验证 header 位域溢出、重复字符表等配置错误能被正确拒绝。
+// TestNewValidation 验证 IdMix / Idx 非法配置能被正确拒绝。
 func TestNewValidation(t *testing.T) {
-	_, err := New(WithMaxObjects(512), WithMaxVariants(32), WithCheckBits(2))
+	_, err := NewIdx(WithMaxObjects(256))
 	if err == nil {
-		t.Fatal("expected layout overflow")
+		t.Fatal("expected maxObjects overflow")
 	}
-	t.Logf("maxObjects=512 + variant=32 => 预期错误: %v", err)
+	t.Logf("maxObjects=256 => 预期错误: %v", err)
 
 	_, err = New(WithAlphabet("abca"))
 	if err == nil {
 		t.Fatal("expected duplicate alphabet error")
 	}
 	t.Logf("重复字符 abca => 预期错误: %v", err)
+
+	idx, err := NewIdx(WithMaxObjects(100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := New(WithIdx(idx), WithCodec(mustRadix(t, "abcd")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Idx().maxObjects != 100 {
+		t.Fatalf("idx maxObjects = %d, want 100", m.Idx().maxObjects)
+	}
 }
 
 // TestEncodeErrors 空参数与非整数类型应返回明确错误。
@@ -284,11 +510,11 @@ func TestEncodeErrors(t *testing.T) {
 	}
 	t.Logf("空参数 Encode => %v", err)
 
-	_, err = m.Encode("x")
+	_, err = m.Encode(3.14)
 	if err == nil {
 		t.Fatal("expected non-integer error")
 	}
-	t.Logf("非整数 Encode(\"x\") => %v", err)
+	t.Logf("非整数 Encode(3.14) => %v", err)
 }
 
 // TestDecodeInvalidChar 字符不在自定义字符表中时应解码失败。

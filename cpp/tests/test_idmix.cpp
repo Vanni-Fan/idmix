@@ -12,13 +12,17 @@ static constexpr int64_t EXTREME_INT32_MIN = -2147483648LL;
 static constexpr int64_t EXTREME_INT64_MIN = INT64_MIN;
 static constexpr int64_t EXTREME_INT64_MAX = INT64_MAX;
 
-static std::string hex(const std::vector<uint8_t>& b) {
-    std::ostringstream os;
-    for (size_t i = 0; i < b.size(); ++i) {
-        if (i) os << ' ';
-        os << std::hex << std::uppercase << (b[i] >> 4) << (b[i] & 0xF);
+static bool valuesEqual(const std::vector<Value>& a, const std::vector<Value>& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (a[i].index() != b[i].index()) return false;
+        if (std::holds_alternative<std::string>(a[i])) {
+            if (std::get<std::string>(a[i]) != std::get<std::string>(b[i])) return false;
+        } else {
+            if (!(std::get<TypedValue>(a[i]) == std::get<TypedValue>(b[i]))) return false;
+        }
     }
-    return b.empty() ? "(empty)" : os.str();
+    return true;
 }
 
 static void check(bool ok, const char* msg) {
@@ -29,24 +33,30 @@ static void check(bool ok, const char* msg) {
     std::cout << "OK: " << msg << std::endl;
 }
 
-static void roundTrip(IdMix& m, const std::vector<TypedValue>& in, const char* name) {
+static void roundTrip(IdMix& m, const std::vector<Value>& in, const char* name) {
     auto s = m.encode(in);
     auto out = m.decode(s);
-    check(out == in, name);
+    check(valuesEqual(out, in), name);
 }
 
-static void decodeVector(IdMix& m, const std::string& encoded, const std::vector<TypedValue>& want,
+static void decodeVector(IdMix& m, const std::string& encoded, const std::vector<Value>& want,
                          const char* name) {
     auto out = m.decode(encoded);
-    check(out == want, name);
+    check(valuesEqual(out, want), name);
+}
+
+static void reEncode(IdMix& m, int variant, const std::vector<Value>& in, const std::string& want,
+                     const char* name) {
+    auto s = m.encodeWithVariant(variant, in);
+    check(s == want, name);
 }
 
 int main() {
     IdMix m = IdMix::newDefault();
-    std::vector<TypedValue> typed = {TypedValue::u16(5), TypedValue::i64(-1), TypedValue::u32(40)};
-    auto data = xid_codec::encodeBinary(m, typed, 0);
-    std::vector<uint8_t> want = {0x0F, 0x00, 0x22, 0x47, 0xB5, 0x1F};
-    check(data == want, "spec example binary");
+    std::vector<Value> typed = {TypedValue::u16(5), TypedValue::i64(-1), TypedValue::u32(40)};
+    auto data = m.idx().encodeWithVariant(0, typed);
+    std::vector<uint8_t> wantBin = {0x80, 0x03, 0x22, 0x47, 0xB5, 0x1F};
+    check(data == wantBin, "spec example binary");
 
     roundTrip(m, typed, "round trip basic");
 
@@ -56,7 +66,7 @@ int main() {
     roundTrip(m, {TypedValue::i64(EXTREME_INT64_MAX)}, "int64_max");
     roundTrip(m, {TypedValue::u64(UINT64_MAX)}, "uint64_max");
 
-    std::vector<TypedValue> mixed = {
+    std::vector<Value> mixed = {
         TypedValue::u32(EXTREME_UINT32_MAX),
         TypedValue::i32(static_cast<int>(EXTREME_INT32_MIN)),
         TypedValue::i64(EXTREME_INT64_MIN),
@@ -64,20 +74,34 @@ int main() {
     };
     roundTrip(m, mixed, "mixed_extremes");
 
-    decodeVector(m, "hYpGvRq6B", typed, "cross-language spec_example");
-    decodeVector(m, "LwMDzFPIwK", {TypedValue::u32(EXTREME_UINT32_MAX)}, "cross-language uint32_max");
-    decodeVector(m, "LwMH4is20x", {TypedValue::i32(static_cast<int>(EXTREME_INT32_MIN))}, "cross-language int32_min");
-    decodeVector(m, "eA3BqyCfeJ73bad1", {TypedValue::i64(EXTREME_INT64_MIN)}, "cross-language int64_min");
-    decodeVector(m, "bTcNSaewCwrxPlc5fGCbq11xnBz120cpBTJ1A6ztNY", mixed, "cross-language mixed_extremes");
+    std::vector<Value> stringEx = {
+        std::string("hello"),
+        TypedValue::u16(5),
+        std::string("\xe4\xb8\x96\xe7\x95\x8c"),
+    };
+    roundTrip(m, stringEx, "string_example");
+
+    decodeVector(m, "ixHjl0FK7", typed, "cross-language spec_example");
+    decodeVector(m, "hUdZLNKGa", {TypedValue::u32(EXTREME_UINT32_MAX)}, "cross-language uint32_max");
+    decodeVector(m, "hUdElRoHP", {TypedValue::i32(static_cast<int>(EXTREME_INT32_MIN))},
+                 "cross-language int32_min");
+    decodeVector(m, "8B10qg6x0EAf3b", {TypedValue::i64(EXTREME_INT64_MIN)}, "cross-language int64_min");
+    decodeVector(m, "8B2cU8kbWpQ2RM", {TypedValue::i64(EXTREME_INT64_MAX)}, "cross-language int64_max");
+    decodeVector(m, "8B3CPRsv0Owa6S", {TypedValue::u64(UINT64_MAX)}, "cross-language uint64_max");
+    decodeVector(m, "bULoRnNZJinEZGKD78wIigIaw6QplS8B0HGNCKO2L6", mixed, "cross-language mixed_extremes");
+    decodeVector(m, "ceOqw5RPaTfgnfXyp7Sdepb", stringEx, "cross-language string_example");
+
+    reEncode(m, 0, typed, "ixHjl0FK7", "re-encode spec_example");
+    reEncode(m, 0, stringEx, "ceOqw5RPaTfgnfXyp7Sdepb", "re-encode string_example");
 
     IdMix m2("abcd");
     auto s2 = m2.encode({TypedValue::u16(100), TypedValue::i32(-10), TypedValue::u8(3)});
     auto out2 = m2.decode(s2);
     check(out2.size() == 3, "custom alphabet round trip");
 
-    auto tamperedData = xid_codec::encodeBinary(m, {TypedValue::u32(1)}, 0);
-    tamperedData[2] ^= 0x01;
-    auto tampered = m.radix().encodeBytes(tamperedData);
+    auto tamperedData = m.idx().encodeWithVariant(0, {TypedValue::u32(1)});
+    tamperedData[1] ^= 0x01;
+    auto tampered = m.codec().encode(tamperedData);
     bool threw = false;
     try {
         m.decode(tampered);
@@ -89,6 +113,11 @@ int main() {
     std::set<std::string> seen;
     for (int i = 0; i < 50; ++i) seen.insert(m.encode({TypedValue::u32(42)}));
     check(seen.size() >= 2, "multiple encodings differ");
+
+    auto raw = encodeBytes({0x08, 0x96, 0x01});
+    auto back = decodeString(raw);
+    check(back.size() == 3 && back[0] == 0x08 && back[1] == 0x96 && back[2] == 0x01,
+          "encodeBytes/decodeString");
 
     std::cout << "All tests passed." << std::endl;
     return 0;

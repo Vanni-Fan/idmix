@@ -1,83 +1,80 @@
 package io.github.vannifan.idmix;
 
-import java.util.Arrays;
-import java.util.List;
 import java.util.Random;
 
-/** XID v1.1 codec entry point. */
+/** IDX v1.2 codec: combines Idx binary layer with a pluggable text codec. */
 public final class IdMix {
     public static final String DEFAULT_ALPHABET =
             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-    private final RadixCodec radix;
-    public final int maxObjects;
-    public final int maxVariants;
-    public final int checkBits;
-    public int countBits;
-    public int variantBits;
-    public int checkMask;
-    public int countMask;
-    public int variantMask;
-    public int countShift;
-    public int variantShift;
-
+    private final Idx idx;
+    private final ICodec codec;
     private final Random random = new Random();
 
-    public IdMix() {
-        this(DEFAULT_ALPHABET, 511, 32, 2);
+    public IdMix(Idx idx, ICodec codec) {
+        if (idx == null) throw new IllegalArgumentException("idx cannot be nil");
+        if (codec == null) throw new IllegalArgumentException("codec cannot be nil");
+        this.idx = idx;
+        this.codec = codec;
     }
 
-    public IdMix(String alphabet) {
-        this(alphabet, 511, 32, 2);
+    public static IdMix create() {
+        return new IdMix(Idx.create(), new RadixCodec(DEFAULT_ALPHABET));
     }
 
-    public IdMix(String alphabet, int maxObjects, int maxVariants, int checkBits) {
-        this.radix = new RadixCodec(alphabet);
-        this.maxObjects = maxObjects;
-        this.maxVariants = maxVariants;
-        this.checkBits = checkBits;
-        finalizeLayout();
+    public static IdMix create(IdMixBuilder builder) {
+        return builder.build();
     }
 
     public static IdMix newDefault() {
-        return new IdMix();
+        return create();
     }
 
-    public String encode(TypedValue... values) {
+    public Idx getIdx() { return idx; }
+    public ICodec getCodec() { return codec; }
+
+    public String encode(Object... values) {
         if (values.length < 1) throw new IllegalArgumentException("at least one value is required");
-        if (values.length > maxObjects) {
-            throw new IllegalArgumentException("too many objects: " + values.length);
+        int variantId = random.nextInt(idx.maxVariants);
+        return codec.encode(encodeBinary(values, variantId));
+    }
+
+    public String encodeWithVariant(int variantId, Object... values) {
+        return codec.encode(encodeBinary(values, variantId));
+    }
+
+    public Object[] decode(String s) {
+        return idx.decode(codec.decode(s));
+    }
+
+    private byte[] encodeBinary(Object[] values, int variantId) {
+        return idx.encodeBinary(Number.normalizeObjects(values), variantId);
+    }
+
+    /** IdMix configuration builder. */
+    public static final class IdMixBuilder {
+        private Idx idx = Idx.create();
+        private ICodec codec = new RadixCodec(DEFAULT_ALPHABET);
+
+        public IdMixBuilder withIdx(Idx idx) {
+            if (idx == null) throw new IllegalArgumentException("idx cannot be nil");
+            this.idx = idx;
+            return this;
         }
-        int variantId = random.nextInt(maxVariants);
-        byte[] data = XidCodec.encodeBinary(this, Arrays.asList(values), variantId);
-        return radix.encodeBytes(data);
-    }
 
-    public List<TypedValue> decode(String s) {
-        byte[] data = radix.decodeBytes(s);
-        return XidCodec.decodeBinary(this, data);
-    }
-
-    public RadixCodec getRadix() { return radix; }
-
-    private void finalizeLayout() {
-        int variantBits = maxVariants <= 1 ? 1 : bitLen(maxVariants - 1);
-        int countBits = maxObjects <= 1 ? 1 : bitLen(maxObjects);
-        int total = checkBits + countBits + variantBits;
-        if (total > 16) {
-            throw new IllegalArgumentException("header layout exceeds 16 bits: " + total);
+        public IdMixBuilder withCodec(ICodec codec) {
+            if (codec == null) throw new IllegalArgumentException("codec cannot be nil");
+            this.codec = codec;
+            return this;
         }
-        this.countBits = countBits;
-        this.variantBits = variantBits;
-        this.checkMask = (1 << checkBits) - 1;
-        this.countMask = ((1 << countBits) - 1) << checkBits;
-        this.variantMask = ((1 << variantBits) - 1) << (checkBits + countBits);
-        this.countShift = checkBits;
-        this.variantShift = checkBits + countBits;
-    }
 
-    private static int bitLen(int n) {
-        if (n <= 0) return 1;
-        return 32 - Integer.numberOfLeadingZeros(n);
+        public IdMixBuilder withAlphabet(String alphabet) {
+            this.codec = new RadixCodec(alphabet);
+            return this;
+        }
+
+        public IdMix build() {
+            return new IdMix(idx, codec);
+        }
     }
 }

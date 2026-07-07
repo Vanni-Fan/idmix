@@ -6,11 +6,11 @@
 
     <groupId>io.github.vanni-fan</groupId>
     <artifactId>idmix</artifactId>
-    <version>0.3.0</version>
+    <version>0.4.0</version>
     <packaging>jar</packaging>
 
     <name>idmix</name>
-    <description>XID v1.1: encode typed integer sequences to short strings</description>
+    <description>IDX v1.2: encode typed integer/short-string sequences to short strings</description>
     <url>https://github.com/Vanni-Fan/idmix</url>
 
     <licenses>

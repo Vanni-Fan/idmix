@@ -1,79 +1,87 @@
-using System.Numerics;
-
 namespace Vanni.Idmix;
 
-/// <summary>XID v1.1 编解码器主入口。</summary>
+/// <summary>IDX v1.2 编解码器：组合 Idx 二进制层与可插拔文本 Codec。</summary>
 public sealed class IdMix
 {
     public const string DefaultAlphabet =
         "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-    private readonly RadixCodec _radix;
+    private readonly Idx _idx;
+    private readonly ICodec _codec;
     private readonly Random _random = new();
 
-    public int MaxObjects { get; }
-    public int MaxVariants { get; }
-    public int CheckBits { get; }
-    public int CountBits { get; private set; }
-    public int VariantBits { get; private set; }
-    public int CheckMask { get; private set; }
-    public int CountMask { get; private set; }
-    public int VariantMask { get; private set; }
-    public int CountShift { get; private set; }
-    public int VariantShift { get; private set; }
-
-    public IdMix() : this(DefaultAlphabet, 511, 32, 2) { }
-
-    public IdMix(string alphabet) : this(alphabet, 511, 32, 2) { }
-
-    public IdMix(string alphabet, int maxObjects, int maxVariants, int checkBits)
+    public IdMix(Idx idx, ICodec codec)
     {
-        _radix = new RadixCodec(alphabet);
-        MaxObjects = maxObjects;
-        MaxVariants = maxVariants;
-        CheckBits = checkBits;
-        FinalizeLayout();
+        _idx = idx ?? throw new ArgumentNullException(nameof(idx));
+        _codec = codec ?? throw new ArgumentNullException(nameof(codec));
     }
 
-    public static IdMix NewDefault() => new();
+    /// <summary>创建 IdMix 实例（默认 Idx + 默认 RadixCodec）。</summary>
+    public static IdMix Create() => new(Idx.Create(), new RadixCodec(DefaultAlphabet));
 
-    public RadixCodec Radix => _radix;
+    /// <summary>使用配置委托创建 IdMix 实例。</summary>
+    public static IdMix Create(Action<IdMixBuilder> configure)
+    {
+        var b = new IdMixBuilder();
+        configure(b);
+        return b.Build();
+    }
 
-    public string Encode(params TypedValue[] values)
+    public static IdMix NewDefault() => Create();
+
+    public Idx Idx => _idx;
+    public ICodec Codec => _codec;
+
+    public string Encode(params object[] values)
     {
         if (values.Length < 1) throw new ArgumentException("at least one value is required");
-        if (values.Length > MaxObjects)
-            throw new ArgumentException($"too many objects: {values.Length}");
-        var variantId = _random.Next(MaxVariants);
-        var data = XidCodec.EncodeBinary(this, values, variantId);
-        return _radix.EncodeBytes(data);
+        var variantId = _random.Next(_idx.MaxVariants);
+        var data = EncodeBinary(values, variantId);
+        return _codec.Encode(data);
     }
 
-    public List<TypedValue> Decode(string s)
+    public string EncodeWithVariant(int variantId, params object[] values)
     {
-        var data = _radix.DecodeBytes(s);
-        return XidCodec.DecodeBinary(this, data);
+        var data = EncodeBinary(values, variantId);
+        return _codec.Encode(data);
     }
 
-    private void FinalizeLayout()
+    public object[] Decode(string s)
     {
-        var variantBits = MaxVariants <= 1 ? 1 : BitLen(MaxVariants - 1);
-        var countBits = MaxObjects <= 1 ? 1 : BitLen(MaxObjects);
-        var total = CheckBits + countBits + variantBits;
-        if (total > 16)
-            throw new ArgumentException($"header layout exceeds 16 bits: {total}");
-        CountBits = countBits;
-        VariantBits = variantBits;
-        CheckMask = (1 << CheckBits) - 1;
-        CountMask = ((1 << countBits) - 1) << CheckBits;
-        VariantMask = ((1 << variantBits) - 1) << (CheckBits + countBits);
-        CountShift = CheckBits;
-        VariantShift = CheckBits + countBits;
+        var data = _codec.Decode(s);
+        return _idx.Decode(data);
     }
 
-    private static int BitLen(int n)
+    private byte[] EncodeBinary(object[] values, int variantId)
     {
-        if (n <= 0) return 1;
-        return 32 - BitOperations.LeadingZeroCount((uint)n);
+        var objects = Number.NormalizeObjects(values);
+        return _idx.EncodeBinary(objects, variantId);
+    }
+
+    /// <summary>IdMix 配置构建器。</summary>
+    public sealed class IdMixBuilder
+    {
+        private Idx _idx = Idx.Create();
+        private ICodec _codec = new RadixCodec(DefaultAlphabet);
+
+        public IdMixBuilder WithIdx(Idx idx)
+        {
+            _idx = idx ?? throw new ArgumentException("idx cannot be nil");
+            return this;
+        }
+
+        public IdMixBuilder WithCodec(ICodec codec)
+        {
+            _codec = codec ?? throw new ArgumentException("codec cannot be nil");
+            return this;
+        }
+
+        public IdMixBuilder WithAlphabet(string alphabet)
+        {
+            _codec = new RadixCodec(alphabet);
+            return this;
+        }
+
+        public IdMix Build() => new(_idx, _codec);
     }
 }
