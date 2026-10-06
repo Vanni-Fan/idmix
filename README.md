@@ -34,7 +34,7 @@
 
 文本层通过 `Codec` **接口**可插拔：默认 `RadixCodec`（自定义字符表），也可换 `Base64Codec`、或 `FuncCodec` 包装 AES/XOR 等。
 
-也可将 **Protobuf / CBOR / MessagePack** 二进制直接经 `EncodeBytes` 输出混淆文本，替代传统的 `Protobuf + AES + Base64` 路径。
+也可将 **Protobuf / CBOR / MessagePack / FlatBuffers / Cap'n Proto** 二进制直接经 `EncodeBytes` 输出混淆文本，替代传统的 `Protobuf + AES + Base64` 路径。
 
 ## 用途
 
@@ -44,6 +44,25 @@
 - **32 态多态**：同一组数据可生成最多 32 种不同编码（variant 异或混淆）
 - **轻量自校验**：2-bit 全局 XOR 校验，约 75% 的随机篡改可被即时拒绝
 - **文本混淆（idmix 层）**：默认 62 进制字符表，可单独包装任意二进制
+
+### 典型使用场景
+
+idmix 的核心价值在于：**将多个带类型的 ID 编码为一个短字符串，无需在数据库中为这些名称另建字段**——因为名称本身携带了完整的 ID 信息。
+
+| 场景 | 示例 | 编码内容 |
+|------|------|----------|
+| **CDN 加速子域名** | `cdn-abc123.example.com` 中的 `abc123` | `[user_id, bucket_id, region]` |
+| **邀请码 / 推荐码** | `INVITE-xYz9K` | `[campaign_id, inviter_user_id]` |
+| **短视频分享链接** | `v.douyin.com/A3bF7` | `[video_id, author_id, source]` |
+| **下载码 / 激活码** | `DL-8kL2P-wQ` | `[product_id, license_type, expire_days]` |
+| **活动码 / 优惠码** | `PROMO-2025-Jx3M` | `[activity_id, discount_tier, max_uses]` |
+| **CDN Bucket 名称** | `bucket-k9M2p` | `[tenant_id, storage_class]` |
+| **SaaS Tenant 标识** | `tenant-7xWqR` | `[tenant_id, plan, region]` |
+| **API Access Key** | `ak-3fH8kL9` | `[app_id, permission_mask, expire_ts]` |
+| **OAuth state 令牌** | state 参数 | `[user_id, client_id, redirect_id, nonce]` |
+| **GraphQL Global ID** | `VXNlcjoxMDAx` | `[type_id, object_id]` |
+
+**核心优势**：以上所有场景中，业务代码只需存储和传递这一个字符串，解码后即可得到全部关联 ID——不需要 JOIN 查询、不需要额外字段、不需要 Redis 缓存。idmix 将多个维度信息"压缩"进一个 ID 中，实现真正的 **ID 即数据**。
 
 
 
@@ -172,30 +191,30 @@ cd rust/lib && cargo test --test benchmark_sqids -- --nocapture
 
 
 
-## 与 MessagePack / CBOR / Protobuf 对比（IDX 二进制层）
+## 与 MessagePack / CBOR / Protobuf / FlatBuffers / Cap'n Proto 对比（IDX 二进制层）
 
-以下对比 **IDX 二进制字节数**与 MessagePack、CBOR、Protobuf（无 schema、逐字段带 `otype`+`val`），**不含 base64 或 idmix 文本层**，与 MsgPack/CBOR/Protobuf 公平对比。
+以下对比 **IDX 二进制字节数**与 MessagePack、CBOR、Protobuf、FlatBuffers、Cap'n Proto（均无 schema、逐字段带 `otype`+`val`），**不含 base64 或 idmix 文本层**，公平对比各格式的二进制编码效率。
 
 ### 编码长度（字节）
 
 
-| 场景             | IDX | MsgPack | CBOR | Protobuf |
-| -------------- | --- | ------- | ---- | -------- |
-| spec_example   | 6   | 46      | 23   | 27       |
-| uint32_max     | 6   | 16      | 12   | 10       |
-| int32_min      | 6   | 16      | 12   | 15       |
-| int64_min      | 10  | 16      | 16   | 15       |
-| int64_max      | 10  | 16      | 16   | 14       |
-| uint64_max     | 10  | 16      | 8    | 15       |
-| mixed_extremes | 39  | 76      | 60   | 69       |
-| access_key     | 11  | 46      | 28   | 23       |
-| embedded_small | 6   | 61      | 29   | 42       |
-| string_example | 16  | 16      | 8    | 6        |
+| 场景             | IDX | MsgPack | CBOR | Protobuf | FlatBuf | Cap'n Proto |
+| -------------- | --- | ------- | ---- | -------- | ------- | ----------- |
+| spec_example   | 6   | 46      | 23   | 27       | 104     | 72          |
+| uint32_max     | 6   | 16      | 12   | 10       | 56      | 40          |
+| int32_min      | 6   | 16      | 12   | 15       | 56      | 40          |
+| int64_min      | 10  | 16      | 16   | 15       | 56      | 40          |
+| int64_max      | 10  | 16      | 16   | 14       | 56      | 40          |
+| uint64_max     | 10  | 16      | 8    | 15       | 56      | 40          |
+| mixed_extremes | 39  | 76      | 60   | 69       | 144     | 104         |
+| access_key     | 11  | 46      | 28   | 23       | 96      | 72          |
+| embedded_small | 6   | 61      | 29   | 42       | 128     | 88          |
+| string_example | 16  | 16      | 8    | 6        | 56      | 40          |
 
 
-`mixed_extremes` 含五个极值单字段；`string_example` = `"hello"` + `uint16(5)` + `"世界"`（variant=0，Go 参考实现实测）。
+`mixed_extremes` 含五个极值单字段；`string_example` = `"hello"` + `uint16(5)` + `"世界"`（variant=0，Go 参考实现实测）。FlatBuffers / Cap'n Proto 列使用 Builder / segment API 手工编码（无 schema 编译），逐元素为 `otype`+`val` 固定 struct。
 
-IDX 在 typed 整数场景下二进制体积通常**远小于** MsgPack；短字符串内联时与 CBOR 接近。
+IDX 在 typed 整数场景下二进制体积通常**远小于** MsgPack、FlatBuffers 与 Cap'n Proto；短字符串内联时与 CBOR 接近。FlatBuffers 与 Cap'n Proto 因固定 struct 对齐开销（每元素约 16B 数据区 + 指针/表头），在小规模 typed-pair 场景中体积明显大于 IDX 与 Protobuf。
 
 ### 编解码性能（IDX 二进制层，相对倍数）
 
@@ -204,26 +223,34 @@ Go 参考实现，单线程，每项 20000 次采样。倍数为 **IDX ops/s ÷ 
 **编码**
 
 
-| 场景             | vs MsgPack | vs CBOR | vs Protobuf |
-| -------------- | ---------- | ------- | ----------- |
-| spec_example   | 2.2×       | 1.3×    | 0.8×        |
-| access_key     | 3.2×       | 2.2×    | 1.1×        |
-| embedded_small | 3.7×       | 1.9×    | 1.8×        |
-| mixed_extremes | 1.7×       | 0.7×    | 0.9×        |
+| 场景             | vs MsgPack | vs CBOR | vs Protobuf | vs FlatBuf | vs Capnp |
+| -------------- | ---------- | ------- | ----------- | ---------- | -------- |
+| spec_example   | 2.3×       | 1.4×    | 0.9×        | 2.1×       | 3.6×     |
+| access_key     | 1.9×       | 1.0×    | 1.1×        | 4.0×       | 4.4×     |
+| embedded_small | 1.9×       | 1.0×    | 0.9×        | 2.2×       | 2.7×     |
+| mixed_extremes | 1.8×       | 0.7×    | 0.7×        | 1.7×       | 2.0×     |
 
 
 **解码**
 
 
-| 场景             | vs MsgPack | vs CBOR | vs Protobuf |
-| -------------- | ---------- | ------- | ----------- |
-| spec_example   | 5.9×       | 4.3×    | 0.8×        |
-| access_key     | 4.9×       | 3.1×    | 0.6×        |
-| embedded_small | 7.1×       | 5.7×    | 0.8×        |
-| mixed_extremes | 3.0×       | 2.7×    | 0.5×        |
+| 场景             | vs MsgPack | vs CBOR | vs Protobuf | vs FlatBuf | vs Capnp |
+| -------------- | ---------- | ------- | ----------- | ---------- | -------- |
+| spec_example   | 5.9×       | 4.2×    | 0.7×        | 0.7×       | 3.3×     |
+| access_key     | 5.0×       | 3.9×    | 0.3×        | 0.3×       | 3.1×     |
+| embedded_small | 4.4×       | 3.2×    | 0.5×        | 0.2×       | 2.1×     |
+| mixed_extremes | 2.8×       | 2.8×    | 0.5×        | 0.1×       | 3.6×     |
 
 
-**小结**：IDX 二进制编解码在中小整数场景显著快于 MsgPack/CBOR；若需 URL 可读字符串，再叠加 idmix 文本层。
+**小结**：IDX 二进制编解码在中小整数场景显著快于 MsgPack/CBOR；编码亦快于 FlatBuffers / Cap'n Proto。解码方面，FlatBuffers / Cap'n Proto 的零拷贝读取极快（倍数 <1），这是其设计目标；若需 URL 可读字符串，再叠加 idmix 文本层。
+
+### 关于 FlatBuffers 和 Cap'n Proto
+
+FlatBuffers 和 Cap'n Proto 均为**零拷贝反序列化**设计——即无需解析即可直接读取数据，特别适合游戏引擎、高频交易等对延迟极其敏感的场景。它们的原理是在二进制数据中保留 struct 的内存布局，使得读取端可以直接通过指针偏移访问字段，无需逐字段解析。
+
+然而，这种"零拷贝"的优势建立在**强 schema 编译**的前提下（通过 `flatc` 或 `capnp compile` 生成代码），且每个 struct 至少占用一次固定对齐开销（通常 8 字节以上）。因此在小规模、无 schema 的 typed-pair 场景中，IDX 的体积和性能均具有显著优势。
+
+如果你已经在项目中使用 FlatBuffers 或 Cap'n Proto 作为主力序列化方案，idmix 文本层仍然可以作为**独立组件**使用——将 FlatBuffers/Cap'n Proto 的二进制输出经 `EncodeBytes` 转为 URL 安全的短字符串，替代传统的 base64 编码。
 
 运行对比测试：
 

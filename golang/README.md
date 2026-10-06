@@ -479,8 +479,9 @@ go test -v -run CrossLanguage
 # Windows PowerShell:
 $env:GENERATE_VECTORS=1; go test -run TestGenerateCrossLanguageVectors
 
-# 与 MsgPack/CBOR/Protobuf 二进制长度对比
+# 与 MsgPack/CBOR/Protobuf/FlatBuffers/Cap'n Proto 二进制长度对比
 go test -v -run TestCompareSerializationFormats
+go test -v -run TestCompareSerializationFormatsPerformance
 ```
 
 ---

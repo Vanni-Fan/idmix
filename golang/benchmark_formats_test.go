@@ -1,4 +1,4 @@
-// benchmark_formats_test.go 对比 IDX 与 MessagePack、CBOR、Protobuf 的二进制长度与性能。
+// benchmark_formats_test.go 对比 IDX 与 MessagePack、CBOR、Protobuf、FlatBuffers、Cap'n Proto 的二进制长度与性能。
 //
 // 运行:
 //   - go test -v -run TestCompareSerializationFormats          # 长度对比
@@ -11,8 +11,10 @@ import (
 	"testing"
 
 	cbor "github.com/fxamacker/cbor/v2"
+	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/vmihailenco/msgpack/v5"
 	"google.golang.org/protobuf/encoding/protowire"
+	capnp "capnproto.org/go/capnp/v3"
 )
 
 type typedPair struct {
@@ -103,6 +105,10 @@ func encodeCBOR(pairs []typedPair) ([]byte, error) {
 	return cbor.Marshal(pairs)
 }
 
+// ── Protobuf (raw protowire) ──────────────────────────────────
+// Encodes each typedPair as a length-delimited sub-message with
+// field 1 (otype varint) + field 2 (val varint).
+
 func encodeProtobuf(pairs []typedPair) ([]byte, error) {
 	var buf []byte
 	for _, p := range pairs {
@@ -115,54 +121,6 @@ func encodeProtobuf(pairs []typedPair) ([]byte, error) {
 		buf = protowire.AppendBytes(buf, item)
 	}
 	return buf, nil
-}
-
-func idxBinaryLen(m *IdMix, values ...any) (int, error) {
-	data, err := m.encodeBinary(values, 0)
-	if err != nil {
-		return 0, err
-	}
-	return len(data), nil
-}
-
-// TestCompareSerializationFormats 对比 IDX 与 MessagePack/CBOR/Protobuf 的二进制字节数。
-func TestCompareSerializationFormats(t *testing.T) {
-	m, err := New()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Log("══════════════════════════════════════════════════════════════════════")
-	t.Log("  IDX vs MessagePack / CBOR / Protobuf — 二进制字节数对比")
-	t.Log("══════════════════════════════════════════════════════════════════════")
-
-	header := fmt.Sprintf("%-22s | %6s | %6s | %6s | %6s",
-		"场景", "IDX", "MsgPack", "CBOR", "Proto")
-	t.Log(header)
-	t.Log(strings.Repeat("-", len(header)))
-
-	for _, c := range serializationFormatCases() {
-		idxLen, err := idxBinaryLen(m, c.idmix...)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		mp, err := encodeMsgPack(c.values)
-		if err != nil {
-			t.Fatal(err)
-		}
-		cb, err := encodeCBOR(c.values)
-		if err != nil {
-			t.Fatal(err)
-		}
-		pb, err := encodeProtobuf(c.values)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		t.Logf("%-22s | %6d | %6d | %6d | %6d",
-			c.name, idxLen, len(mp), len(cb), len(pb))
-	}
 }
 
 func decodeProtobuf(data []byte) ([]typedPair, error) {
@@ -219,7 +177,190 @@ func decodeProtobuf(data []byte) ([]typedPair, error) {
 	return pairs, nil
 }
 
-// TestCompareSerializationFormatsPerformance 对比 IDX 与 MessagePack/CBOR/Protobuf 编解码吞吐。
+// ── FlatBuffers ───────────────────────────────────────────────
+// Uses the flatbuffers.Builder API directly (no schema compilation needed).
+//
+// Schema equivalent:
+//   table TypedPair { otype:int32; val:int64; }
+//   table TypedPairList { pairs:[TypedPair]; }
+//   root_type TypedPairList;
+
+func encodeFlatBuffers(pairs []typedPair) ([]byte, error) {
+	builder := flatbuffers.NewBuilder(0)
+
+	// Build leaf tables in reverse order (FlatBuffers convention).
+	offsets := make([]flatbuffers.UOffsetT, len(pairs))
+	for i := len(pairs) - 1; i >= 0; i-- {
+		builder.StartObject(2)
+		builder.PrependInt32Slot(0, int32(pairs[i].OType), 0)
+		builder.PrependInt64Slot(1, pairs[i].Val, 0)
+		offsets[i] = builder.EndObject()
+	}
+
+	// Build a vector of table offsets (field 0 in root table).
+	builder.StartVector(4, len(pairs), 4)
+	for i := len(pairs) - 1; i >= 0; i-- {
+		builder.PrependUOffsetT(offsets[i])
+	}
+	vecOff := builder.EndVector(len(pairs))
+
+	// Root table: TypedPairList, field 0 = pairs vector.
+	builder.StartObject(1)
+	builder.PrependUOffsetTSlot(0, vecOff, 0)
+	rootOff := builder.EndObject()
+	builder.Finish(rootOff)
+
+	return builder.FinishedBytes(), nil
+}
+
+func decodeFlatBuffers(data []byte) ([]typedPair, error) {
+	if len(data) < 4 {
+		return nil, fmt.Errorf("flatbuffers: data too short")
+	}
+	rootTable := flatbuffers.Table{
+		Bytes: data,
+		Pos:   flatbuffers.GetUOffsetT(data[0:]),
+	}
+
+	// Read pairs vector (field 0, vtable slot offset = 4).
+	o := rootTable.Offset(4)
+	if o == 0 {
+		return nil, fmt.Errorf("flatbuffers: pairs field not found")
+	}
+	fieldOff := flatbuffers.UOffsetT(o)
+	vecLen := rootTable.VectorLen(fieldOff)
+	vecStart := rootTable.Vector(fieldOff)
+	result := make([]typedPair, 0, vecLen)
+	for i := 0; i < vecLen; i++ {
+		elemOff := rootTable.Indirect(vecStart + flatbuffers.UOffsetT(i*4))
+		elemTable := flatbuffers.Table{Bytes: data, Pos: elemOff}
+		result = append(result, typedPair{
+			OType: int(elemTable.GetInt32Slot(4, 0)),
+			Val:   elemTable.GetInt64Slot(6, 0),
+		})
+	}
+	return result, nil
+}
+
+// ── Cap'n Proto ───────────────────────────────────────────────
+// Uses capnproto.org/go/capnp/v3 segment-level API (no schema compilation needed).
+//
+// Schema equivalent (schema_types.capnp):
+//   struct TypedPair { otype @0 :Int32; val @1 :Int64; }
+//   struct TypedPairList { pairs @0 :List(TypedPair); }
+//
+// In wire format, a composite list element is:
+//   Int32@0 (4B) + padding (4B) + Int64@8 (8B) = 16B per element.
+
+const capnpPairDataSize = 16 // bytes per TypedPair struct data section
+
+func encodeCapnp(pairs []typedPair) ([]byte, error) {
+	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+	if err != nil {
+		return nil, err
+	}
+
+	sz := capnp.ObjectSize{DataSize: capnpPairDataSize}
+	list, err := capnp.NewCompositeList(seg, sz, int32(len(pairs)))
+	if err != nil {
+		return nil, err
+	}
+
+	for i, p := range pairs {
+		st := list.Struct(i)
+		st.SetUint32(0, uint32(p.OType))
+		st.SetUint64(8, uint64(p.Val))
+	}
+
+	// Set root to list pointer.
+	seg.Message().SetRoot(list.ToPtr())
+
+	return seg.Message().Marshal()
+}
+
+func decodeCapnp(data []byte) ([]typedPair, error) {
+	msg, err := capnp.Unmarshal(data)
+	if err != nil {
+		return nil, err
+	}
+	root, err := msg.Root()
+	if err != nil {
+		return nil, err
+	}
+
+	list := root.List()
+	n := list.Len()
+	result := make([]typedPair, 0, n)
+	for i := 0; i < n; i++ {
+		// Each element is 2 words: Int32 at offset 0, Int64 at offset 8.
+		elem := list.Struct(i)
+		result = append(result, typedPair{
+			OType: int(int32(elem.Uint32(0))),
+			Val:   int64(elem.Uint64(8)),
+		})
+	}
+	return result, nil
+}
+
+// ── Test helpers ──────────────────────────────────────────────
+
+func idxBinaryLen(m *IdMix, values ...any) (int, error) {
+	data, err := m.encodeBinary(values, 0)
+	if err != nil {
+		return 0, err
+	}
+	return len(data), nil
+}
+
+// TestCompareSerializationFormats 对比 IDX 与 MessagePack / CBOR / Protobuf / FlatBuffers / Cap'n Proto 的二进制字节数。
+func TestCompareSerializationFormats(t *testing.T) {
+	m, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Log("══════════════════════════════════════════════════════════════════════════════")
+	t.Log("  IDX vs MsgPack / CBOR / Protobuf / FlatBuffers / Cap'n Proto — 二进制字节数对比")
+	t.Log("══════════════════════════════════════════════════════════════════════════════")
+
+	header := fmt.Sprintf("%-18s | %4s | %6s | %4s | %4s | %4s | %4s",
+		"Scenario", "IDX", "MsgPack", "CBOR", "Proto", "FB", "Capnp")
+	t.Log(header)
+	t.Log(strings.Repeat("-", len(header)))
+
+	for _, c := range serializationFormatCases() {
+		idxLen, err := idxBinaryLen(m, c.idmix...)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		mp, err := encodeMsgPack(c.values)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cb, err := encodeCBOR(c.values)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pb, err := encodeProtobuf(c.values)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fb, err := encodeFlatBuffers(c.values)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cap, err := encodeCapnp(c.values)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Logf("%-18s | %4d | %6d | %4d | %4d | %4d | %4d",
+			c.name, idxLen, len(mp), len(cb), len(pb), len(fb), len(cap))
+	}
+}
+
+// TestCompareSerializationFormatsPerformance 对比 IDX 与 MessagePack / CBOR / Protobuf / FlatBuffers / Cap'n Proto 编解码吞吐。
 func TestCompareSerializationFormatsPerformance(t *testing.T) {
 	const rounds = 20000
 
@@ -233,16 +374,16 @@ func TestCompareSerializationFormatsPerformance(t *testing.T) {
 	}
 
 	perfCases := []formatCase{
-		serializationFormatCases()[0],
-		serializationFormatCases()[7],
-		serializationFormatCases()[8],
-		serializationFormatCases()[6],
+		serializationFormatCases()[0], // spec_example
+		serializationFormatCases()[7], // access_key
+		serializationFormatCases()[8], // embedded_small
+		serializationFormatCases()[6], // mixed_extremes
 	}
 
-	t.Log("══════════════════════════════════════════════════════════════════════")
-	t.Logf("  IDX vs MessagePack / CBOR / Protobuf — 性能对比 (各 %d 次, 单线程)", rounds)
-	t.Log("  说明: 倍数 = IDX ops/s ÷ 对方 ops/s；>1 表示 IDX 更快")
-	t.Log("══════════════════════════════════════════════════════════════════════")
+	t.Log("══════════════════════════════════════════════════════════════════════════════")
+	t.Logf("  IDX vs MsgPack / CBOR / Protobuf / FlatBuffers / Cap'n Proto — 性能对比 (各 %d 次, 单线程)", rounds)
+	t.Log("  倍数 = IDX ops/s ÷ 对方 ops/s；>1 表示 IDX 更快")
+	t.Log("══════════════════════════════════════════════════════════════════════════════")
 
 	for _, c := range perfCases {
 		idxRaw, err := m.encodeBinary(c.idmix, 0)
@@ -262,11 +403,21 @@ func TestCompareSerializationFormatsPerformance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		fbRaw, err := encodeFlatBuffers(c.values)
+		if err != nil {
+			t.Fatal(err)
+		}
+		capRaw, err := encodeCapnp(c.values)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		idxEnc := benchOnce(rounds, func() { _, _ = m.encodeBinary(c.idmix, 0) })
 		mpEnc := benchOnce(rounds, func() { _, _ = encodeMsgPack(c.values) })
 		cbEnc := benchOnce(rounds, func() { _, _ = encodeCBOR(c.values) })
 		pbEnc := benchOnce(rounds, func() { _, _ = encodeProtobuf(c.values) })
+		fbEnc := benchOnce(rounds, func() { _, _ = encodeFlatBuffers(c.values) })
+		capEnc := benchOnce(rounds, func() { _, _ = encodeCapnp(c.values) })
 
 		idxDec := benchOnce(rounds, func() { _, _ = idx.Decode(idxRaw) })
 		mpDec := benchOnce(rounds, func() {
@@ -278,16 +429,22 @@ func TestCompareSerializationFormatsPerformance(t *testing.T) {
 			_ = cbor.Unmarshal(cbRaw, &out)
 		})
 		pbDec := benchOnce(rounds, func() { _, _ = decodeProtobuf(pbRaw) })
+		fbDec := benchOnce(rounds, func() { _, _ = decodeFlatBuffers(fbRaw) })
+		capDec := benchOnce(rounds, func() { _, _ = decodeCapnp(capRaw) })
 
 		t.Logf("▶ %s", c.name)
 		t.Logf("  编码  IDX:     %8.0f ops/s  (%6.0f ns/op)", idxEnc.opsPerSec, idxEnc.nsPerOp)
 		t.Logf("  编码  MsgPack: %8.0f ops/s  (%6.0f ns/op)  [IDX/MsgPack = %.2fx]", mpEnc.opsPerSec, mpEnc.nsPerOp, ratio(idxEnc.opsPerSec, mpEnc.opsPerSec))
 		t.Logf("  编码  CBOR:    %8.0f ops/s  (%6.0f ns/op)  [IDX/CBOR = %.2fx]", cbEnc.opsPerSec, cbEnc.nsPerOp, ratio(idxEnc.opsPerSec, cbEnc.opsPerSec))
 		t.Logf("  编码  Proto:   %8.0f ops/s  (%6.0f ns/op)  [IDX/Proto = %.2fx]", pbEnc.opsPerSec, pbEnc.nsPerOp, ratio(idxEnc.opsPerSec, pbEnc.opsPerSec))
+		t.Logf("  编码  FlatBuf: %8.0f ops/s  (%6.0f ns/op)  [IDX/FB = %.2fx]", fbEnc.opsPerSec, fbEnc.nsPerOp, ratio(idxEnc.opsPerSec, fbEnc.opsPerSec))
+		t.Logf("  编码  Capnp:   %8.0f ops/s  (%6.0f ns/op)  [IDX/Capnp = %.2fx]", capEnc.opsPerSec, capEnc.nsPerOp, ratio(idxEnc.opsPerSec, capEnc.opsPerSec))
 		t.Logf("  解码  IDX:     %8.0f ops/s  (%6.0f ns/op)", idxDec.opsPerSec, idxDec.nsPerOp)
 		t.Logf("  解码  MsgPack: %8.0f ops/s  (%6.0f ns/op)  [IDX/MsgPack = %.2fx]", mpDec.opsPerSec, mpDec.nsPerOp, ratio(idxDec.opsPerSec, mpDec.opsPerSec))
 		t.Logf("  解码  CBOR:    %8.0f ops/s  (%6.0f ns/op)  [IDX/CBOR = %.2fx]", cbDec.opsPerSec, cbDec.nsPerOp, ratio(idxDec.opsPerSec, cbDec.opsPerSec))
 		t.Logf("  解码  Proto:   %8.0f ops/s  (%6.0f ns/op)  [IDX/Proto = %.2fx]", pbDec.opsPerSec, pbDec.nsPerOp, ratio(idxDec.opsPerSec, pbDec.opsPerSec))
+		t.Logf("  解码  FlatBuf: %8.0f ops/s  (%6.0f ns/op)  [IDX/FB = %.2fx]", fbDec.opsPerSec, fbDec.nsPerOp, ratio(idxDec.opsPerSec, fbDec.opsPerSec))
+		t.Logf("  解码  Capnp:   %8.0f ops/s  (%6.0f ns/op)  [IDX/Capnp = %.2fx]", capDec.opsPerSec, capDec.nsPerOp, ratio(idxDec.opsPerSec, capDec.opsPerSec))
 		t.Log("")
 	}
 }

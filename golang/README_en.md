@@ -482,8 +482,9 @@ $env:GENERATE_VECTORS=1; go test -run TestGenerateCrossLanguageVectors
 # Linux/macOS:
 GENERATE_VECTORS=1 go test -run TestGenerateCrossLanguageVectors
 
-# Binary size vs MsgPack/CBOR/Protobuf
+# Binary size vs MsgPack/CBOR/Protobuf/FlatBuffers/Cap'n Proto
 go test -v -run TestCompareSerializationFormats
+go test -v -run TestCompareSerializationFormatsPerformance
 ```
 
 ---

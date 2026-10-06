@@ -30,7 +30,7 @@ If this project helps you, please give it a **⭐ Star** on GitHub: [github.com/
 
 The text layer is **pluggable** via the **`Codec` interface**: default `RadixCodec` (custom alphabet), or `Base64Codec`, or `FuncCodec` wrapping AES/XOR and similar transforms.
 
-You can also pass **Protobuf / CBOR / MessagePack** binary directly through `EncodeBytes` to produce obfuscated text, as an alternative to the traditional `Protobuf + AES + Base64` pipeline.
+You can also pass **Protobuf / CBOR / MessagePack / FlatBuffers / Cap'n Proto** binary directly through `EncodeBytes` to produce obfuscated text, as an alternative to the traditional `Protobuf + AES + Base64` pipeline.
 
 ## Use Cases
 
@@ -40,6 +40,25 @@ You can also pass **Protobuf / CBOR / MessagePack** binary directly through `Enc
 - **32-variant polymorphism**: The same data can produce up to 32 different encodings (variant XOR obfuscation)
 - **Lightweight self-check**: 2-bit global XOR checksum; roughly 75% of random tampering is rejected immediately
 - **Text obfuscation (idmix layer)**: Default 62-character alphabet; can wrap arbitrary binary on its own
+
+### Typical Scenarios
+
+The core value proposition of idmix: **encode multiple typed IDs into a single short string, eliminating the need for dedicated database columns** — the string itself carries all the identity information.
+
+| Scenario | Example | Encoded content |
+|----------|---------|-----------------|
+| **CDN subdomain** | `abc123` in `cdn-abc123.example.com` | `[user_id, bucket_id, region]` |
+| **Invite / referral codes** | `INVITE-xYz9K` | `[campaign_id, inviter_user_id]` |
+| **Short video sharing links** | `v.douyin.com/A3bF7` | `[video_id, author_id, source]` |
+| **Download / activation codes** | `DL-8kL2P-wQ` | `[product_id, license_type, expire_days]` |
+| **Promo / coupon codes** | `PROMO-2025-Jx3M` | `[activity_id, discount_tier, max_uses]` |
+| **CDN Bucket name** | `bucket-k9M2p` | `[tenant_id, storage_class]` |
+| **SaaS Tenant identifier** | `tenant-7xWqR` | `[tenant_id, plan, region]` |
+| **API Access Key** | `ak-3fH8kL9` | `[app_id, permission_mask, expire_ts]` |
+| **OAuth state token** | state parameter | `[user_id, client_id, redirect_id, nonce]` |
+| **GraphQL Global ID** | `VXNlcjoxMDAx` | `[type_id, object_id]` |
+
+**The key advantage**: In all the above scenarios, the application only needs to store and pass this single string. Decoding it yields all associated IDs — no JOIN queries, no extra columns, no Redis caching required. idmix compresses multiple dimensions of information into one ID, achieving true **ID-as-data**.
 
 ## Algorithm Overview (IDX v1.2 + idmix)
 
@@ -159,28 +178,28 @@ cd golang && go test -v -run TestCompareSqidsPerformance
 cd rust/lib && cargo test --test benchmark_sqids -- --nocapture
 ```
 
-## Comparison with MessagePack / CBOR / Protobuf (IDX Binary Layer)
+## Comparison with MessagePack / CBOR / Protobuf / FlatBuffers / Cap'n Proto (IDX Binary Layer)
 
-The following compares **IDX binary byte counts** with MessagePack, CBOR, and Protobuf (no schema, per-field `otype`+`val`), **excluding base64 or idmix text layer**, for a fair comparison with MsgPack/CBOR/Protobuf.
+The following compares **IDX binary byte counts** with MessagePack, CBOR, Protobuf, FlatBuffers, and Cap'n Proto (no schema, per-field `otype`+`val`), **excluding base64 or idmix text layer**, for a fair comparison of raw binary encoding efficiency.
 
 ### Encoding Length (bytes)
 
-| Scenario | IDX | MsgPack | CBOR | Protobuf |
-| --- | --- | --- | --- | --- |
-| spec_example | 6 | 46 | 23 | 27 |
-| uint32_max | 6 | 16 | 12 | 10 |
-| int32_min | 6 | 16 | 12 | 15 |
-| int64_min | 10 | 16 | 16 | 15 |
-| int64_max | 10 | 16 | 16 | 14 |
-| uint64_max | 10 | 16 | 8 | 15 |
-| mixed_extremes | 39 | 76 | 60 | 69 |
-| access_key | 11 | 46 | 28 | 23 |
-| embedded_small | 6 | 61 | 29 | 42 |
-| string_example | 16 | 16 | 8 | 6 |
+| Scenario | IDX | MsgPack | CBOR | Protobuf | FlatBuf | Cap'n Proto |
+| --- | --- | --- | --- | --- | --- | --- |
+| spec_example | 6 | 46 | 23 | 27 | 104 | 72 |
+| uint32_max | 6 | 16 | 12 | 10 | 56 | 40 |
+| int32_min | 6 | 16 | 12 | 15 | 56 | 40 |
+| int64_min | 10 | 16 | 16 | 15 | 56 | 40 |
+| int64_max | 10 | 16 | 16 | 14 | 56 | 40 |
+| uint64_max | 10 | 16 | 8 | 15 | 56 | 40 |
+| mixed_extremes | 39 | 76 | 60 | 69 | 144 | 104 |
+| access_key | 11 | 46 | 28 | 23 | 96 | 72 |
+| embedded_small | 6 | 61 | 29 | 42 | 128 | 88 |
+| string_example | 16 | 16 | 8 | 6 | 56 | 40 |
 
-`mixed_extremes` contains five single-field extreme values; `string_example` = `"hello"` + `uint16(5)` + `"世界"` (variant=0, measured in Go reference implementation).
+`mixed_extremes` contains five single-field extreme values; `string_example` = `"hello"` + `uint16(5)` + `"世界"` (variant=0, measured in Go reference implementation). FlatBuffers / Cap'n Proto columns use hand-built Builder / segment API encoding (no schema compilation), with each element as a fixed `otype`+`val` struct.
 
-IDX binary size is typically **much smaller** than MsgPack for typed integers; inline short strings are close to CBOR.
+IDX binary size is typically **much smaller** than MsgPack, FlatBuffers, and Cap'n Proto for typed integers; inline short strings are close to CBOR. FlatBuffers and Cap'n Proto incur fixed struct alignment overhead (≈16B data per element plus pointer/table headers), producing noticeably larger output than IDX and Protobuf in this small typed-pair scenario.
 
 ### Encode/Decode Performance (IDX binary layer, relative ratios)
 
@@ -188,23 +207,31 @@ Go reference implementation, single-threaded, 20,000 samples per item. Ratio = *
 
 **Encode**
 
-| Scenario | vs MsgPack | vs CBOR | vs Protobuf |
-| --- | --- | --- | --- |
-| spec_example | 2.2× | 1.3× | 0.8× |
-| access_key | 3.2× | 2.2× | 1.1× |
-| embedded_small | 3.7× | 1.9× | 1.8× |
-| mixed_extremes | 1.7× | 0.7× | 0.9× |
+| Scenario | vs MsgPack | vs CBOR | vs Protobuf | vs FlatBuf | vs Capnp |
+| --- | --- | --- | --- | --- | --- |
+| spec_example | 2.3× | 1.4× | 0.9× | 2.1× | 3.6× |
+| access_key | 1.9× | 1.0× | 1.1× | 4.0× | 4.4× |
+| embedded_small | 1.9× | 1.0× | 0.9× | 2.2× | 2.7× |
+| mixed_extremes | 1.8× | 0.7× | 0.7× | 1.7× | 2.0× |
 
 **Decode**
 
-| Scenario | vs MsgPack | vs CBOR | vs Protobuf |
-| --- | --- | --- | --- |
-| spec_example | 5.9× | 4.3× | 0.8× |
-| access_key | 4.9× | 3.1× | 0.6× |
-| embedded_small | 7.1× | 5.7× | 0.8× |
-| mixed_extremes | 3.0× | 2.7× | 0.5× |
+| Scenario | vs MsgPack | vs CBOR | vs Protobuf | vs FlatBuf | vs Capnp |
+| --- | --- | --- | --- | --- | --- |
+| spec_example | 5.9× | 4.2× | 0.7× | 0.7× | 3.3× |
+| access_key | 5.0× | 3.9× | 0.3× | 0.3× | 3.1× |
+| embedded_small | 4.4× | 3.2× | 0.5× | 0.2× | 2.1× |
+| mixed_extremes | 2.8× | 2.8× | 0.5× | 0.1× | 3.6× |
 
-**Summary**: IDX binary encode/decode is significantly faster than MsgPack/CBOR for small-to-medium integers; add the idmix text layer when URL-readable strings are needed.
+**Summary**: IDX binary encode/decode is significantly faster than MsgPack/CBOR for small-to-medium integers; encoding is also faster than FlatBuffers / Cap'n Proto. On decode, FlatBuffers / Cap'n Proto zero-copy reads are extremely fast (ratio <1) by design; add the idmix text layer when URL-readable strings are needed.
+
+### On FlatBuffers and Cap'n Proto
+
+FlatBuffers and Cap'n Proto are **zero-copy deserialization** formats — data can be read directly from the wire without parsing, making them ideal for game engines, HFT, and other latency-critical domains. They achieve this by preserving struct memory layouts in the binary payload, allowing the reader to access fields via pointer offset rather than field-by-field parsing.
+
+However, this zero-copy advantage relies on **pre-compiled schemas** (via `flatc` or `capnp compile`), and each struct incurs a fixed alignment cost (typically 8+ bytes). In small-scale, schema-less typed-pair scenarios, IDX has significant advantages in both size and speed.
+
+If you already use FlatBuffers or Cap'n Proto as your primary serialization format, the idmix text layer can still be used as a **standalone component** — pass FlatBuffers/Cap'n Proto binary output through `EncodeBytes` to get a URL-safe short string, replacing traditional base64 encoding.
 
 Run comparison tests:
 

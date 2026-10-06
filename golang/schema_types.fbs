@@ -1,0 +1,20 @@
+// 用于 IDX vs FlatBuffers 基准对比的 FlatBuffers schema。
+// 定义 TypedPair 表（otype + val）及 TypedPairList（由 TypedPair 向量组成的根表）。
+//
+// 生成 Go 代码（需要 flatc）：
+//   flatc --go schema_types.fbs
+
+namespace idmix_bench;
+
+// 带类型的值对（otype 整数类型 + val 值）。
+table TypedPair {
+    otype:int32;
+    val:int64;
+}
+
+// 根表：包含一个 TypedPair 向量。
+table TypedPairList {
+    pairs:[TypedPair];
+}
+
+root_type TypedPairList;
